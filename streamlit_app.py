@@ -449,6 +449,41 @@ with tab4:
             if report_type == "Health Vitals"
             else "activity_logs"
         )
+    # --- ADD THIS AT THE VERY BOTTOM ---
+    st.divider()
+    st.subheader("📤 Bulk Import Kaggle Dataset")
+    st.write("Upload the 'Food_Nutrition_Dataset.csv' to map it to your format.")
+
+    uploaded_file = st.file_uploader("Choose Kaggle CSV", type="csv")
+
+    if uploaded_file is not None:
+        try:
+            df_kaggle = pd.read_csv(uploaded_file)
+
+            # Map Kaggle headers to your Database headers
+            mapping = {
+                "food_name": "food_name",
+                "calories": "calories",
+                "protein": "protein_g",
+                "carbs": "carbs_g",
+                "fat": "fat_g",
+            }
+
+            # Filter and rename columns
+            df_mapped = df_kaggle[list(mapping.keys())].rename(columns=mapping)
+            df_mapped["fiber_g"] = 0.0  # Add missing fiber column
+
+            st.write("Preview of Mapped Data:")
+            st.dataframe(df_mapped.head())
+
+            if st.button("🚀 Confirm Bulk Import"):
+                food_list = df_mapped.to_dict(orient="records")
+                supabase.table("foods").insert(food_list).execute()
+                st.success(f"Successfully imported {len(food_list)} items!")
+                st.balloons()
+        except Exception as e:
+            st.error(f"Mapping failed: {e}")
+
         res = supabase.table(tbl).select("*").order("date", desc=True).execute()
         if res.data:
             df_r = pd.DataFrame(res.data)
