@@ -2,6 +2,7 @@ import streamlit as st
 from supabase import create_client
 from datetime import datetime, timedelta
 import pandas as pd
+import numpy as np
 
 # 1. Setup Connection
 url = st.secrets["SUPABASE_URL"]
@@ -11,21 +12,15 @@ supabase = create_client(url, key)
 st.set_page_config(page_title="My Health Dashboard", layout="wide")
 st.title("💪 My Health Dashboard")
 
-# Manual Targets
-TARGET_CALORIES = 2000
-TARGET_PROTEIN = 150
-TARGET_CARBS = 250
-
-# Color Constants
-COLOR_NORMAL = "#2ecc71"
-COLOR_WARNING = "#f1c40f"
-COLOR_DANGER = "#e74c3c"
+# Constants
+TARGET_CALORIES, TARGET_PROTEIN, TARGET_CARBS = 2000, 150, 250
+COLOR_NORMAL, COLOR_WARNING, COLOR_DANGER = "#2ecc71", "#f1c40f", "#e74c3c"
 
 tab1, tab2, tab3 = st.tabs(
     ["🍴 Nutrition Budget", "🩺 Health Metrics", "🏃 Activity Tracker"]
 )
 
-# --- TAB 1: NUTRITION BUDGET (Restored) ---
+# --- TAB 1: NUTRITION BUDGET ---
 with tab1:
     try:
         response = supabase.table("daily_variance").select("*").execute()
@@ -318,10 +313,7 @@ with tab3:
         ex_name = col2.text_input("Exercise Name (e.g. Walking, Pushups, Planks)")
 
         c1, c2, c3 = st.columns(3)
-        dur = 0.0
-        sets = 0
-        reps = 0
-        dist = 0.0
+        dur, sets, reps, dist = 0.0, 0, 0, 0.0
 
         if category == "Strength":
             sets = c1.number_input("Sets", min_value=0, value=0)
@@ -349,7 +341,6 @@ with tab3:
                 st.rerun()
 
     st.divider()
-    st.subheader("📈 Activity Trends (Duration)")
     try:
         act_res = (
             supabase.table("activity_logs")
@@ -360,28 +351,41 @@ with tab3:
         if act_res.data:
             df_a = pd.DataFrame(act_res.data)
 
-            # PACE CALCULATION: min/mile
-            def calc_pace(row):
-                if row["type"] == "Cardio" and row["distance_miles"] > 0:
-                    return round(row["duration_min"] / row["distance_miles"], 2)
-                return None
-
-            df_a["pace_min_mi"] = df_a.apply(calc_pace, axis=1)
-
-            last_dur = df_a["duration_min"].iloc[-1]
-            act_color = (
-                COLOR_NORMAL
-                if last_dur >= 30
-                else (COLOR_WARNING if last_dur >= 11 else COLOR_DANGER)
+            # PACE CALCULATION
+            df_a["pace_min_mi"] = df_a.apply(
+                lambda r: (
+                    round(r["duration_min"] / r["distance_miles"], 2)
+                    if r["distance_miles"] > 0
+                    else None
+                ),
+                axis=1,
             )
-            st.markdown(
-                f"**Current Session Status:** {'🟢 Great (30m+)' if last_dur >= 30 else '🟡 Moderate (11-29m)' if last_dur >= 11 else '🔴 Short (0-10m)'}"
-            )
-            st.line_chart(df_a, x="date", y="duration_min", color=act_color)
+
+            # --- CHARTS ---
+            chart_col1, chart_col2 = st.columns(2)
+
+            with chart_col1:
+                st.subheader("📈 Duration Trends")
+                last_dur = df_a["duration_min"].iloc[-1]
+                act_color = (
+                    COLOR_NORMAL
+                    if last_dur >= 30
+                    else (COLOR_WARNING if last_dur >= 11 else COLOR_DANGER)
+                )
+                st.line_chart(df_a, x="date", y="duration_min", color=act_color)
+
+            with chart_col2:
+                st.subheader("⏱️ Cardio Pace (min/mi)")
+                df_cardio = df_a[df_a["type"] == "Cardio"].dropna(
+                    subset=["pace_min_mi"]
+                )
+                if not df_cardio.empty:
+                    st.line_chart(df_cardio, x="date", y="pace_min_mi", color="#3498db")
+                else:
+                    st.info("Log Cardio distance to see pace trends.")
 
             st.divider()
             st.subheader("📜 Activity History")
-            # Added Pace to the display columns
             st.dataframe(
                 df_a[
                     [
@@ -404,5 +408,7 @@ with tab3:
                 data=csv_act,
                 file_name=f"workout_log_{datetime.now().date()}.csv",
             )
-    except:
-        pass
+        else:
+            st.info("No activities logged yet.")
+    except Exception as e:
+        st.error(f"Error loading trends: {e}")
