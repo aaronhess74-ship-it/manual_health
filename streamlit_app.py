@@ -47,6 +47,7 @@ with tab1:
 
     st.divider()
 
+    # Log Meal Form
     st.subheader("🍴 Log a Meal")
     try:
         food_query = supabase.table("foods").select("*").execute()
@@ -71,6 +72,40 @@ with tab1:
                     st.rerun()
     except Exception as e:
         st.error(f"Food Log Error: {e}")
+
+    # NEW: Log History & Delete Section
+    st.divider()
+    st.subheader("📜 Today's Log History")
+    try:
+        # Fetch today's logs joined with food names
+        # Note: This assumes your daily_logs table has a foreign key to foods
+        history_res = (
+            supabase.table("daily_logs")
+            .select("log_id, servings, log_date, foods(food_name, calories, protein_g)")
+            .eq("log_date", str(datetime.now().date()))
+            .execute()
+        )
+
+        if history_res.data:
+            for item in history_res.data:
+                food_info = item["foods"]
+                col1, col2, col3 = st.columns([3, 1, 1])
+                col1.write(
+                    f"**{food_info['food_name']}** ({item['servings']} servings)"
+                )
+                col2.write(f"{int(food_info['calories'] * item['servings'])} cal")
+
+                # Delete Button for each entry
+                if col3.button("🗑️", key=f"del_{item['log_id']}"):
+                    supabase.table("daily_logs").delete().eq(
+                        "log_id", item["log_id"]
+                    ).execute()
+                    st.success("Entry deleted!")
+                    st.rerun()
+        else:
+            st.write("No meals logged yet today.")
+    except Exception as e:
+        st.write("Could not load history.")
 
 # --- TAB 2: HEALTH METRICS ---
 with tab2:
@@ -112,7 +147,6 @@ with tab2:
 
     st.divider()
 
-    # --- TIME VIEW FILTER ---
     st.subheader("📈 Health Trends")
     time_view = st.radio("View Range:", ["7 Days", "30 Days", "Year"], horizontal=True)
 
@@ -125,7 +159,6 @@ with tab2:
         cutoff = today - timedelta(days=365)
 
     try:
-        # Fetch data and sort by date/time
         res = (
             supabase.table("health_metrics")
             .select("*")
@@ -137,8 +170,6 @@ with tab2:
 
         if res.data:
             df = pd.DataFrame(res.data)
-
-            # 1. Convert numeric columns
             metrics = [
                 "blood_pressure_systolic",
                 "blood_pressure_diastolic",
@@ -147,10 +178,6 @@ with tab2:
             ]
             for m in metrics:
                 df[m] = pd.to_numeric(df[m], errors="coerce")
-
-            # 2. Prepare the Chart Data
-            # We use the 'date' column for the X-axis so it groups by day visually.
-            # Because we DON'T aggregate, Streamlit will plot multiple points on the same vertical 'day' line.
 
             st.write(f"#### Blood Pressure Trend")
             st.line_chart(
