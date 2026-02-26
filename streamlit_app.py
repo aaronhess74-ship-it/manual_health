@@ -28,7 +28,7 @@ tab1, tab2, tab3, tab4 = st.tabs(
     ["🍴 Nutrition", "🩺 Health Metrics", "🏃 Activity", "📊 Reports & Exports"]
 )
 
-# --- TAB 1: NUTRITION (Full Restoration) ---
+# --- TAB 1: NUTRITION ---
 with tab1:
     try:
         response = supabase.table("daily_variance").select("*").execute()
@@ -88,7 +88,6 @@ with tab1:
     st.divider()
     st.subheader("⚡ Quick Log")
     try:
-        # Fetches the last 5 unique foods you actually logged
         recent = (
             supabase.table("daily_logs")
             .select("food_id, foods(food_name)")
@@ -122,19 +121,17 @@ with tab1:
         pass
 
     st.divider()
-    col_left, col_right = st.columns(2)
-    with col_left:
+    col_l, col_r = st.columns(2)
+    with col_l:
         st.subheader("🍴 Log Existing")
         f_query = supabase.table("foods").select("*").order("food_name").execute()
         if f_query.data:
             f_dict = {f["food_name"]: f for f in f_query.data}
-            sel = st.selectbox(
-                "Search Library", options=list(f_dict.keys()), index=None
-            )
+            sel = st.selectbox("Search Food", options=list(f_dict.keys()), index=None)
             if sel:
                 food = f_dict[sel]
                 srv = st.number_input("Servings", 0.1, 10.0, value=1.0)
-                if st.button("Log Selection"):
+                if st.button("Log Meal"):
                     supabase.table("daily_logs").insert(
                         {
                             "food_id": food["food_id"],
@@ -143,28 +140,25 @@ with tab1:
                         }
                     ).execute()
                     st.rerun()
-
-    with col_right:
+    with col_r:
         st.subheader("🆕 New Food")
-        with st.form("new_food_form", clear_on_submit=True):
-            n_name = st.text_input("Food Name")
-            c_c1, c_c2 = st.columns(2)
-            n_cal = c_c1.number_input("Calories", 0)
-            n_prot = c_c2.number_input("Protein (g)", 0)
-            n_carb = c_c1.number_input("Carbs (g)", 0)
-            n_fat = c_c2.number_input("Fat (g)", 0)
-            n_fib = st.number_input("Fiber (g)", 0)
-            if st.form_submit_button("Save & Log"):
+        with st.form("new_f"):
+            fn = st.text_input("Name")
+            c1, c2 = st.columns(2)
+            cal, pr = c1.number_input("Cal", 0), c2.number_input("Prot", 0)
+            cb, ft = c1.number_input("Carb", 0), c2.number_input("Fat", 0)
+            fi = st.number_input("Fiber", 0)
+            if st.form_submit_button("Add & Log"):
                 res = (
                     supabase.table("foods")
                     .insert(
                         {
-                            "food_name": n_name,
-                            "calories": n_cal,
-                            "protein_g": n_prot,
-                            "carbs_g": n_carb,
-                            "fat_g": n_fat,
-                            "fiber_g": n_fib,
+                            "food_name": fn,
+                            "calories": cal,
+                            "protein_g": pr,
+                            "carbs_g": cb,
+                            "fat_g": ft,
+                            "fiber_g": fi,
                         }
                     )
                     .execute()
@@ -179,71 +173,53 @@ with tab1:
                     ).execute()
                     st.rerun()
 
-# --- TAB 2: HEALTH METRICS (Full Restoration with Color Logic) ---
+# --- TAB 2: HEALTH METRICS ---
 with tab2:
-    with st.expander("➕ Add New Entry", expanded=True):
-        with st.form("vitals_form"):
-            v_date = st.date_input("Date", datetime.now().date())
-            c_v1, c_v2, c_v3 = st.columns(3)
-            s_bp = c_v1.number_input("Systolic", 120)
-            d_bp = c_v2.number_input("Diastolic", 80)
-            w_lb = c_v3.number_input("Weight", 180.0)
-            g_mg = st.number_input("Glucose", 100)
-            if st.form_submit_button("Record Vitals"):
+    with st.expander("➕ Log Vitals", expanded=True):
+        with st.form("v_form"):
+            v_d = st.date_input("Date", datetime.now().date())
+            c1, c2, c3 = st.columns(3)
+            sys, dia = c1.number_input("Sys", 120), c2.number_input("Dia", 80)
+            wt, gl = c3.number_input("Weight", 180.0), st.number_input("Glucose", 100)
+            if st.form_submit_button("Save"):
                 supabase.table("health_metrics").insert(
                     {
-                        "date": str(v_date),
-                        "blood_pressure_systolic": s_bp,
-                        "blood_pressure_diastolic": d_bp,
-                        "blood_glucose": g_mg,
-                        "weight_lb": w_lb,
+                        "date": str(v_d),
+                        "blood_pressure_systolic": sys,
+                        "blood_pressure_diastolic": dia,
+                        "blood_glucose": gl,
+                        "weight_lb": wt,
                     }
                 ).execute()
                 st.rerun()
 
     try:
-        h_data = (
+        hv = (
             supabase.table("health_metrics")
             .select("*")
             .order("date", desc=False)
             .execute()
         )
-        if h_data.data:
-            df_h = pd.DataFrame(h_data.data)
-            latest_v = h_data.data[-1]
+        if hv.data:
+            df_h = pd.DataFrame(hv.data)
+            latest = hv.data[-1]
 
-            def get_bp_color(s):
-                return (
-                    ("🟢 OK", C_GREEN)
-                    if s < 130
-                    else (("🟡 NEAR", C_YELLOW) if s < 140 else ("🔴 HIGH", C_RED))
-                )
+            def get_color(val, target, high_bad=True):
+                if high_bad:
+                    return C_GREEN if val <= target else C_RED
+                return C_GREEN if val >= target else C_RED
 
-            def get_glu_color(g):
-                return (
-                    ("🟢 OK", C_GREEN)
-                    if g < 100
-                    else (("🟡 NEAR", C_YELLOW) if g < 126 else ("🔴 HIGH", C_RED))
-                )
-
-            def get_wt_color(w):
-                return (
-                    ("🟢 OK", C_GREEN)
-                    if w <= TARGET_WEIGHT
-                    else (("🟡 HIGH", C_YELLOW) if w < 200 else ("🔴 DANGER", C_RED))
-                )
-
-            bp_txt, bp_col = get_bp_color(latest_v["blood_pressure_systolic"])
-            gl_txt, gl_col = get_glu_color(latest_v["blood_glucose"])
-            wt_txt, wt_col = get_wt_color(latest_v["weight_lb"])
+            sys_col = get_color(latest["blood_pressure_systolic"], TARGET_BP_SYS)
+            gl_col = get_color(latest["blood_glucose"], TARGET_GLUCOSE)
+            wt_col = get_color(latest["weight_lb"], TARGET_WEIGHT)
 
             m1, m2, m3 = st.columns(3)
             m1.metric(
-                f"BP {bp_txt}",
-                f"{int(latest_v['blood_pressure_systolic'])}/{int(latest_v['blood_pressure_diastolic'])}",
+                "Blood Pressure",
+                f"{int(latest['blood_pressure_systolic'])}/{int(latest['blood_pressure_diastolic'])}",
             )
-            m2.metric(f"Glucose {gl_txt}", f"{latest_v['blood_glucose']} mg/dL")
-            m3.metric(f"Weight {wt_txt}", f"{latest_v['weight_lb']} lbs")
+            m2.metric("Glucose", f"{latest['blood_glucose']} mg/dL")
+            m3.metric("Weight", f"{latest['weight_lb']} lbs")
 
             st.divider()
             st.subheader("📉 Health Trends & Targets")
@@ -253,15 +229,15 @@ with tab2:
                 TARGET_BP_SYS,
             )
 
-            col_t1, col_t2 = st.columns(2)
-            with col_t1:
+            c_t1, c_t2 = st.columns(2)
+            with c_t1:
                 st.line_chart(
                     df_h,
                     x="date",
                     y=["weight_lb", "Target Weight"],
                     color=[wt_col, C_GRAY],
                 )
-            with col_t2:
+            with c_t2:
                 st.line_chart(
                     df_h,
                     x="date",
@@ -272,62 +248,81 @@ with tab2:
                 df_h,
                 x="date",
                 y=["blood_pressure_systolic", "blood_pressure_diastolic", "Target BP"],
-                color=[bp_col, "#95a5a6", C_GRAY],
+                color=[sys_col, "#95a5a6", C_GRAY],
             )
     except:
         pass
 
-# --- TAB 3: ACTIVITY (Full Restoration) ---
+# --- TAB 3: ACTIVITY ---
 with tab3:
-    with st.form("activity_form"):
-        act_date = st.date_input("Date", datetime.now().date())
-        act_name = st.text_input("Exercise")
-        c_a1, c_a2 = st.columns(2)
-        act_min = c_a1.number_input("Minutes", 0.0)
-        act_mi = c_a2.number_input("Miles", 0.0)
-        if st.form_submit_button("Log Activity"):
+    with st.form("a_form"):
+        ad, an = st.date_input("Date"), st.text_input("Exercise")
+        c1, c2 = st.columns(2)
+        dm, mi = c1.number_input("Min", 0.0), c2.number_input("Miles", 0.0)
+        if st.form_submit_button("Log"):
             supabase.table("activity_logs").insert(
                 {
-                    "date": str(act_date),
-                    "exercise_name": act_name,
-                    "duration_min": act_min,
-                    "distance_miles": act_mi,
+                    "date": str(ad),
+                    "exercise_name": an,
+                    "duration_min": dm,
+                    "distance_miles": mi,
                 }
             ).execute()
             st.rerun()
 
-    st.divider()
     try:
-        act_data = (
+        ar = (
             supabase.table("activity_logs")
             .select("*")
             .order("date", desc=False)
             .execute()
         )
-        if act_data.data:
-            df_a = pd.DataFrame(act_data.data)
+        if ar.data:
+            df_a = pd.DataFrame(ar.data)
             st.subheader("🏃 Activity Trend")
             st.line_chart(df_a, x="date", y="duration_min", color="#3498db")
-            st.subheader("📜 History")
             st.dataframe(
                 df_a.sort_values(by="date", ascending=False), use_container_width=True
             )
     except:
         pass
 
-# --- TAB 4: REPORTS ---
+# --- TAB 4: REPORTS (RESTORED UNIFIED REPORT) ---
 with tab4:
-    st.subheader("📋 System Reports")
-    rep_sel = st.selectbox(
-        "View Data", ["Nutrition Variance", "Health Vitals", "Activity Logs"]
+    st.subheader("📊 Performance & Unified Reports")
+
+    # Unified Master Report Logic
+    try:
+        n_data = supabase.table("daily_variance").select("*").execute()
+        h_data = supabase.table("health_metrics").select("*").execute()
+        if n_data.data and h_data.data:
+            df_n, df_h = pd.DataFrame(n_data.data), pd.DataFrame(h_data.data)
+            df_master = pd.merge(df_n, df_h, on="date", how="outer").sort_values(
+                by="date", ascending=False
+            )
+
+            st.write("### 📈 Master Unified Table")
+            st.dataframe(df_master, use_container_width=True)
+
+            csv = df_master.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "📥 Download Master Report", csv, "health_master.csv", "text/csv"
+            )
+    except:
+        st.info("Log both Nutrition and Health data to generate the Master Report.")
+
+    st.divider()
+    st.subheader("📁 Individual Data Views")
+    rep_type = st.selectbox(
+        "Select Table", ["Nutrition Variance", "Health Vitals", "Activity Logs"]
     )
-    rep_tbl = (
+    tbl_name = (
         "daily_variance"
-        if rep_sel == "Nutrition Variance"
+        if rep_type == "Nutrition Variance"
         else "health_metrics"
-        if rep_sel == "Health Vitals"
+        if rep_type == "Health Vitals"
         else "activity_logs"
     )
-    rep_res = supabase.table(rep_tbl).select("*").order("date", desc=True).execute()
-    if rep_res.data:
-        st.dataframe(pd.DataFrame(rep_res.data), use_container_width=True)
+    res_ind = supabase.table(tbl_name).select("*").order("date", desc=True).execute()
+    if res_ind.data:
+        st.dataframe(pd.DataFrame(res_ind.data), use_container_width=True)
