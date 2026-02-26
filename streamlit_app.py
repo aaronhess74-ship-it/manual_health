@@ -309,7 +309,6 @@ with tab2:
 with tab3:
     st.subheader("🏃 Log Activity")
 
-    # 1. Select category first to drive the form
     category = st.radio(
         "Activity Type:", ["Strength", "Static", "Cardio"], horizontal=True
     )
@@ -321,24 +320,24 @@ with tab3:
 
         c1, c2, c3 = st.columns(3)
 
-        # Initialize form variables
-        dur = sets = reps = dist = 0
+        dur = 0.0
+        sets = reps = 0
+        dist = 0.0
 
-        # STRENGTH: Sets and Reps only
         if category == "Strength":
             sets = c1.number_input("Sets", min_value=0, value=0)
             reps = c2.number_input("Reps", min_value=0, value=0)
+            # Duration added as optional float for timed strength sets
+            dur = c3.number_input("Duration (min)", min_value=0.0, value=0.0, step=0.1)
 
-        # STATIC: Duration, Sets, Reps
         elif category == "Static":
-            dur = c1.number_input("Duration (min)", min_value=0, value=0)
+            dur = c1.number_input("Duration (min)", min_value=0.0, value=0.0, step=0.1)
             sets = c2.number_input("Sets", min_value=0, value=0)
             reps = c3.number_input("Reps", min_value=0, value=0)
 
-        # CARDIO: Duration and Distance
         elif category == "Cardio":
-            dur = c1.number_input("Duration (min)", min_value=0, value=0)
-            dist = c2.number_input("Distance (mi)", min_value=0.0, step=0.1)
+            dur = c1.number_input("Duration (min)", min_value=0.0, value=0.0, step=0.1)
+            dist = c2.number_input("Distance (mi)", min_value=0.0, value=0.0, step=0.1)
 
         if st.form_submit_button("Save Activity"):
             if ex_name:
@@ -366,7 +365,6 @@ with tab3:
         if act_res.data:
             df_a = pd.DataFrame(act_res.data)
 
-            # Trend color logic (Duration-based)
             last_dur = df_a["duration_min"].iloc[-1]
             act_color = (
                 COLOR_NORMAL
@@ -381,6 +379,7 @@ with tab3:
 
             st.divider()
             st.subheader("📜 Activity History")
+            # History table now supports showing the precise decimals
             st.dataframe(
                 df_a[
                     [
