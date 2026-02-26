@@ -8,14 +8,6 @@ supabase = create_client(url, key)
 
 st.title("💪 My Health Budget")
 
-# --- DEBUGGER: Let's see what the app can actually see ---
-with st.expander("Connection Debugger"):
-    try:
-        test_foods = supabase.table("foods").select("count", count="exact").execute()
-        st.write(f"✅ Connected! Found {test_foods.count} items in your 'foods' table.")
-    except Exception as e:
-        st.error(f"❌ Connection Error: {e}")
-
 # --- PART 1: THE DASHBOARD ---
 try:
     response = supabase.table("daily_variance").select("*").execute()
@@ -23,6 +15,7 @@ try:
         latest = response.data[0]
         st.subheader(f"Status for {latest['date']}")
 
+        # Budget math
         cal_budget = latest["calorie_variance"] * -1
         prot_budget = latest["protein_variance"] * -1
         carb_budget = latest["carbs_variance"] * -1
@@ -36,18 +29,20 @@ try:
         )
         col3.metric("Carbs (g)", f"{latest['total_carbs']}", f"{carb_budget} Remaining")
 except Exception as e:
-    st.info("Waiting for dashboard data...")
+    st.info("Log a meal below to start your daily dashboard!")
 
 st.divider()
 
-# --- PART 2: THE DROPDOWN ---
+# --- PART 2: THE DROPDOWN (Manual Fix) ---
 st.subheader("🍴 Quick Log Meal")
 
 try:
-    # We fetch the food list
-    food_query = supabase.table("foods").select("id, food_name").execute()
+    # We fetch ALL columns to avoid naming errors
+    food_query = supabase.table("foods").select("*").execute()
 
     if food_query.data:
+        # HARD-CODED NAMES: Changing 'id' to 'food_id' and 'food_name' to whatever you used
+        # If your column is 'Name', change 'food_name' to 'Name' below:
         food_options = {f["food_name"]: f["food_id"] for f in food_query.data}
 
         with st.form("meal_form", clear_on_submit=True):
@@ -61,15 +56,18 @@ try:
                 new_log = {
                     "food_id": food_options[selected_food],
                     "servings": servings,
-                    "log_date": str(latest["date"])
-                    if "latest" in locals()
-                    else "2026-02-26",
+                    "log_date": "2026-02-26",  # Hardcoded for testing, we can automate later
                 }
                 supabase.table("daily_logs").insert(new_log).execute()
-                st.success("Logged!")
+                st.success(f"Successfully logged {selected_food}!")
                 st.rerun()
     else:
-        st.warning("No foods found in your 'foods' table. Add some in Supabase first!")
+        st.warning(
+            "Your 'foods' table is empty. Add a row in Supabase with columns: food_id and food_name."
+        )
 
 except Exception as e:
-    st.error(f"Dropdown Error: {e}")
+    # This will show us the EXACT column names if it fails again
+    st.error(f"Error: {e}")
+    if "food_query" in locals() and food_query.data:
+        st.write("Your actual columns are:", list(food_query.data[0].keys()))
