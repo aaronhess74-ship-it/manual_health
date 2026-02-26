@@ -70,7 +70,7 @@ with tab1:
             c3.metric(
                 f"Net Carbs {get_status_icon(net_c, TARGET_NET_CARBS)}",
                 f"{int(net_c)}g",
-                f"{int(TARGET_NET_CARBS - net_c)} Left",
+                f"{int(TARGET_NET_CARBS - n_c)} Left",
             )
             c4.metric(
                 f"Total Fat {get_status_icon(fat, TARGET_FAT_MAX)}",
@@ -133,7 +133,10 @@ with tab1:
             )
             if sel:
                 food = f_dict[sel]
-                srv = st.number_input("Servings", 0.1, 10.0, value=1.0, step=0.1)
+                # Unlocked servings
+                srv = st.number_input(
+                    "Servings", min_value=0.0, max_value=100.0, value=1.0, step=0.1
+                )
                 if st.button("Log Meal"):
                     supabase.table("daily_logs").insert(
                         {
@@ -205,14 +208,16 @@ with tab2:
         with st.form("v_form"):
             v_date = st.date_input("Date", datetime.now().date())
             c1, c2, c3 = st.columns(3)
-            sys, dia = (
-                c1.number_input("Systolic", 120),
-                c2.number_input("Diastolic", 80),
+            # UNLOCKED BP, WEIGHT, GLUCOSE
+            sys = c1.number_input("Systolic", min_value=0, max_value=300, value=120)
+            dia = c2.number_input("Diastolic", min_value=0, max_value=200, value=80)
+            weight = c3.number_input(
+                "Weight (lbs)", min_value=0.0, max_value=1000.0, value=180.0
             )
-            weight, glu = (
-                c3.number_input("Weight (lbs)", 180.0),
-                st.number_input("Glucose (mg/dL)", 100),
+            glu = st.number_input(
+                "Glucose (mg/dL)", min_value=0, max_value=1000, value=100
             )
+
             if st.form_submit_button("Save Vitals"):
                 supabase.table("health_metrics").insert(
                     {
@@ -307,9 +312,10 @@ with tab3:
         a_date = st.date_input("Date", datetime.now().date())
         name = st.text_input("Exercise Name")
         c1, c2 = st.columns(2)
-        dur, dist = (
-            c1.number_input("Minutes", 0.0),
-            c2.number_input("Miles (if cardio)", 0.0),
+        # UNLOCKED ACTIVITY INPUTS
+        dur = c1.number_input("Minutes", min_value=0.0, max_value=1440.0, value=30.0)
+        dist = c2.number_input(
+            "Miles (if cardio)", min_value=0.0, max_value=500.0, value=0.0
         )
         if st.form_submit_button("Log Activity"):
             supabase.table("activity_logs").insert(
