@@ -46,7 +46,7 @@ with tab1:
                 f"{latest['total_carbs']}g",
                 f"{TARGET_CARBS - latest['total_carbs']}g Left",
             )
-    except Exception as e:
+    except Exception:
         st.info("Log a meal below to see today's nutrition status.")
 
     st.divider()
@@ -71,8 +71,8 @@ with tab1:
                     }
                     supabase.table("daily_logs").insert(new_log).execute()
                     st.rerun()
-    except Exception as e:
-        st.error(f"Error loading food list: {e}")
+    except Exception:
+        pass
 
     st.divider()
     st.subheader("📜 Today's Log History")
@@ -97,12 +97,11 @@ with tab1:
                     st.rerun()
         else:
             st.write("No meals logged yet today.")
-    except Exception as e:
-        st.write("Log meals to see history here.")
+    except Exception:
+        pass
 
 # --- TAB 2: HEALTH METRICS ---
 with tab2:
-    # Default Trend Colors
     bp_line_color = COLOR_NORMAL
     glu_line_color = COLOR_NORMAL
     wgt_line_color = COLOR_NORMAL
@@ -126,7 +125,7 @@ with tab2:
                 float(v["weight_lb"]),
             )
 
-            # 1. BP Logic & Color
+            # BP Logic
             if s < 120 and d < 80:
                 bp_status, bp_line_color = "🟢 Normal", COLOR_NORMAL
             elif 120 <= s < 130 and d < 80:
@@ -134,7 +133,7 @@ with tab2:
             else:
                 bp_status, bp_line_color = "🔴 Hypertension", COLOR_DANGER
 
-            # 2. Glucose Logic & Color
+            # Glucose Logic
             if g < 100:
                 g_status, glu_line_color = "🟢 Normal", COLOR_NORMAL
             elif 100 <= g < 126:
@@ -142,7 +141,7 @@ with tab2:
             else:
                 g_status, glu_line_color = "🔴 High", COLOR_DANGER
 
-            # 3. Weight Logic & Color
+            # Weight Logic
             if 155 <= w <= 179:
                 w_status, wgt_line_color = "🟢 Goal Range", COLOR_NORMAL
             elif 180 <= w <= 200:
@@ -160,8 +159,8 @@ with tab2:
             with m3:
                 st.metric("Weight", f"{w} lbs")
                 st.markdown(f"**Status:** {w_status}")
-    except Exception as e:
-        st.info("Log your first vitals to see status summary.")
+    except Exception:
+        pass
 
     st.divider()
     with st.expander("🩺 Log New Vitals & Weight"):
