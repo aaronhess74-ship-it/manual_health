@@ -47,7 +47,6 @@ with tab1:
 
     st.divider()
 
-    # Log Meal Form
     st.subheader("🍴 Log a Meal")
     try:
         food_query = supabase.table("foods").select("*").execute()
@@ -73,7 +72,6 @@ with tab1:
     except Exception as e:
         st.error(f"Food Log Error: {e}")
 
-    # Log History
     st.divider()
     st.subheader("📜 Today's Log History")
     try:
@@ -103,7 +101,6 @@ with tab1:
 
 # --- TAB 2: HEALTH METRICS ---
 with tab2:
-    # 1. COLOR-CODED SUMMARY
     st.subheader("🏷️ Latest Vitals Status")
     try:
         last_res = (
@@ -116,35 +113,42 @@ with tab2:
         )
         if last_res.data:
             v = last_res.data[0]
-            s, d, g = (
-                v["blood_pressure_systolic"],
-                v["blood_pressure_diastolic"],
-                v["blood_glucose"],
-            )
+            s = int(v["blood_pressure_systolic"])
+            d = int(v["blood_pressure_diastolic"])
+            g = int(v["blood_glucose"])
 
-            # Logic for BP Color
+            # --- BP STATUS CALCULATION ---
             if s < 120 and d < 80:
-                bp_color = "normal"
-            elif s < 130 and d < 80:
-                bp_color = "off"  # yellow/elevated
+                bp_status = "🟢 Normal"
+            elif 120 <= s < 130 and d < 80:
+                bp_status = "🟡 Elevated"
+            elif 130 <= s < 140 or 80 <= d < 90:
+                bp_status = "🟠 Stage 1 Hypertension"
             else:
-                bp_color = "inverse"  # orange/red
+                bp_status = "🔴 Stage 2+ Hypertension"
 
-            # Logic for Glucose Color
+            # --- GLUCOSE STATUS CALCULATION ---
             if g < 100:
-                g_color = "normal"
-            elif g < 126:
-                g_color = "off"
+                g_status = "🟢 Normal"
+            elif 100 <= g < 126:
+                g_status = "🟡 Pre-diabetes"
             else:
-                g_color = "inverse"
+                g_status = "🔴 High (Diabetes Level)"
 
             m1, m2, m3 = st.columns(3)
-            m1.metric("Latest BP", f"{s}/{d}", delta_color=bp_color)
-            m2.metric("Latest Glucose", f"{g} mg/dL", delta_color=g_color)
-            m3.metric("Latest Weight", f"{v['weight_lb']} lbs")
-            st.caption(f"Last entry: {v['date']} at {v['time']}")
-    except:
-        pass
+            with m1:
+                st.metric("Blood Pressure", f"{s}/{d}")
+                st.markdown(f"**Status:** {bp_status}")
+            with m2:
+                st.metric("Glucose", f"{g} mg/dL")
+                st.markdown(f"**Status:** {g_status}")
+            with m3:
+                st.metric("Weight", f"{v['weight_lb']} lbs")
+                st.write("")  # Spacer
+
+            st.caption(f"Last recorded: {v['date']} at {v['time']}")
+    except Exception as e:
+        st.info("Log your first vitals to see status summary.")
 
     st.divider()
     st.subheader("🩺 Log Vitals & Weight")
@@ -194,12 +198,6 @@ with tab2:
         )
         if res.data:
             df = pd.DataFrame(res.data)
-            df["datetime"] = pd.to_datetime(
-                df["date"].astype(str) + " " + df["time"].astype(str),
-                format="mixed",
-                errors="coerce",
-            )
-            df = df.dropna(subset=["datetime"]).sort_values("datetime")
             metrics = [
                 "blood_pressure_systolic",
                 "blood_pressure_diastolic",
