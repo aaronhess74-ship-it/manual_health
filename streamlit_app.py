@@ -312,21 +312,27 @@ with tab3:
     with st.form("activity_form", clear_on_submit=True):
         col1, col2 = st.columns(2)
         ex_date = col1.date_input("Date", value=datetime.now().date())
-        ex_name = col2.text_input("Exercise Name (e.g. Running, Pushups, Planks)")
+        ex_name = col2.text_input("Exercise Name (e.g. Walking, Running, Dead Hangs)")
+
         category = st.selectbox(
             "Type",
             [
                 "Strength (Sets/Reps)",
-                "Cardio (Distance/Duration)",
-                "Static (Duration/Sets/Reps)",
+                "Cardio (Distance + Duration)",
+                "Static (Duration + Sets/Reps)",
             ],
         )
+
         c1, c2, c3 = st.columns(3)
         duration = c1.number_input("Duration (minutes)", min_value=0, value=0)
+
+        # Modified Logic: Static now allows Sets/Reps + Duration
         sets = reps = distance = 0
         if "Strength" in category or "Static" in category:
             sets = c2.number_input("Sets", min_value=0, value=0)
             reps = c3.number_input("Reps", min_value=0, value=0)
+
+        # Modified Logic: Cardio now forces Duration and allows Distance
         if "Cardio" in category:
             distance = c2.number_input("Distance (miles)", min_value=0.0, step=0.1)
 
@@ -355,21 +361,23 @@ with tab3:
         )
         if act_res.data:
             df_a = pd.DataFrame(act_res.data)
-            last_duration = df_a["duration_min"].iloc[-1]
-            if last_duration >= 30:
-                act_color = COLOR_NORMAL
-            elif 11 <= last_duration <= 29:
-                act_color = COLOR_WARNING
-            else:
-                act_color = COLOR_DANGER
+
+            # Use most recent duration for trend color
+            last_dur = df_a["duration_min"].iloc[-1]
+            act_color = (
+                COLOR_NORMAL
+                if last_dur >= 30
+                else (COLOR_WARNING if last_dur >= 11 else COLOR_DANGER)
+            )
 
             st.markdown(
-                f"**Current Session Status:** {'🟢 Great (30m+)' if last_duration >= 30 else '🟡 Moderate (11-29m)' if last_duration >= 11 else '🔴 Short (0-10m)'}"
+                f"**Current Session Status:** {'🟢 Great (30m+)' if last_dur >= 30 else '🟡 Moderate (11-29m)' if last_dur >= 11 else '🔴 Short (0-10m)'}"
             )
             st.line_chart(df_a, x="date", y="duration_min", color=act_color)
 
             st.divider()
             st.subheader("📜 Activity History")
+            # Showing both Duration and Distance in history
             st.dataframe(
                 df_a[
                     [
@@ -377,12 +385,14 @@ with tab3:
                         "exercise_name",
                         "type",
                         "duration_min",
+                        "distance_miles",
                         "sets",
                         "reps",
-                        "distance_miles",
                     ]
-                ]
+                ],
+                use_container_width=True,
             )
+
             csv_act = df_a.to_csv(index=False).encode("utf-8")
             st.download_button(
                 "📥 Download Workout Log (CSV)",
