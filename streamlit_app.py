@@ -31,14 +31,12 @@ with tab1:
             st.subheader(f"Status for {latest['date']}")
             c1, c2, c3, c4, c5 = st.columns(5)
 
-            # Data extraction
             cals = float(latest.get("total_calories", 0))
             prot = float(latest.get("total_protein", 0))
             net_c = float(latest.get("total_net_carbs", 0))
             fat = float(latest.get("total_fat", 0))
             fib = float(latest.get("total_fiber", 0))
 
-            # Helper for explicit Status Icons
             def get_status_icon(curr, target, is_ceiling=True):
                 if is_ceiling:
                     if curr > target:
@@ -46,46 +44,37 @@ with tab1:
                     if curr >= (target * 0.90):
                         return "🟡 NEAR"
                     return "🟢 OK"
-                else:  # Floor (Protein/Fiber)
+                else:
                     if curr >= target:
                         return "🟢 GOAL"
                     if curr >= (target * 0.90):
                         return "🟡 LOW"
                     return "🔴 URGENT"
 
-            # 1. Calories (Ceiling)
             c1.metric(
                 f"Calories {get_status_icon(cals, TARGET_CALORIES)}",
                 f"{int(cals)}",
                 f"{int(TARGET_CALORIES - cals)} Left",
                 delta_color="off",
             )
-
-            # 2. Protein (Floor)
             c2.metric(
                 f"Protein {get_status_icon(prot, TARGET_PROTEIN, False)}",
                 f"{int(prot)}g",
                 f"{int(prot - TARGET_PROTEIN)} vs Target",
                 delta_color="off",
             )
-
-            # 3. Net Carbs (Ceiling)
             c3.metric(
                 f"Net Carbs {get_status_icon(net_c, TARGET_NET_CARBS)}",
                 f"{int(net_c)}g",
                 f"{int(TARGET_NET_CARBS - net_c)} Left",
                 delta_color="off",
             )
-
-            # 4. Total Fat (Ceiling)
             c4.metric(
                 f"Total Fat {get_status_icon(fat, TARGET_FAT_MAX)}",
                 f"{int(fat)}g",
                 f"{int(TARGET_FAT_MAX - fat)} Left",
                 delta_color="off",
             )
-
-            # 5. Fiber (Floor)
             c5.metric(
                 f"Fiber {get_status_icon(fib, TARGET_FIBER_MIN, False)}",
                 f"{int(fib)}g",
@@ -109,7 +98,7 @@ with tab1:
             seen, quick_foods = set(), []
             for r in recent.data:
                 fid, fname = r["food_id"], r["foods"]["food_name"]
-                if fid not in seen:
+                if fid not in seen and fid is not None:
                     quick_foods.append({"id": fid, "name": fname})
                     seen.add(fid)
                 if len(quick_foods) == 5:
@@ -225,33 +214,51 @@ with tab1:
 # --- TAB 2: HEALTH METRICS ---
 with tab2:
     try:
-        last_v = (
+        all_vitals = (
             supabase.table("health_metrics")
             .select("*")
-            .order("date", desc=True)
-            .limit(1)
+            .order("date", desc=False)
             .execute()
         )
-        if last_v.data:
-            v = last_v.data[0]
+        if all_vitals.data:
+            df_v = pd.DataFrame(all_vitals.data)
+            latest_v = all_vitals.data[-1]
+
             m1, m2, m3 = st.columns(3)
             m1.metric(
                 "BP",
-                f"{int(v['blood_pressure_systolic'])}/{int(v['blood_pressure_diastolic'])}",
+                f"{int(latest_v['blood_pressure_systolic'])}/{int(latest_v['blood_pressure_diastolic'])}",
             )
-            m2.metric("Glucose", f"{v['blood_glucose']}")
-            m3.metric("Weight", f"{v['weight_lb']} lbs")
+            m2.metric("Glucose", f"{latest_v['blood_glucose']} mg/dL")
+            m3.metric("Weight", f"{latest_v['weight_lb']} lbs")
+
+            st.divider()
+            st.subheader("📈 Health Trends")
+            t1, t2 = st.columns(2)
+            t1.write("**Weight Trend**")
+            t1.line_chart(df_v, x="date", y="weight_lb")
+            t2.write("**Glucose Trend**")
+            t2.line_chart(df_v, x="date", y="blood_glucose")
+
+            st.write("**Blood Pressure Trend**")
+            st.line_chart(
+                df_v,
+                x="date",
+                y=["blood_pressure_systolic", "blood_pressure_diastolic"],
+            )
     except:
-        pass
-    with st.expander("Log Vitals"):
+        st.info("Log some vitals to see trends!")
+
+    with st.expander("➕ Log Vitals"):
         with st.form("v_form", clear_on_submit=True):
+            v_date = st.date_input("Date", datetime.now().date())
             c1, c2, c3 = st.columns(3)
             sys, dia = c1.number_input("Sys", 120), c2.number_input("Dia", 80)
             weight, glu = c3.number_input("Wt", 180.0), st.number_input("Glu", 100)
-            if st.form_submit_button("Save"):
+            if st.form_submit_button("Save Vitals"):
                 supabase.table("health_metrics").insert(
                     {
-                        "date": str(datetime.now().date()),
+                        "date": str(v_date),
                         "blood_pressure_systolic": sys,
                         "blood_pressure_diastolic": dia,
                         "blood_glucose": glu,
@@ -264,6 +271,7 @@ with tab2:
 with tab3:
     cat = st.radio("Type:", ["Strength", "Static", "Cardio"], horizontal=True)
     with st.form("act_form", clear_on_submit=True):
+        a_date = st.date_input("Date", datetime.now().date())
         name = st.text_input("Exercise Name")
         c1, c2 = st.columns(2)
         dur, dist, sets, reps = 0.0, 0.0, 0, 0
@@ -276,7 +284,7 @@ with tab3:
         if st.form_submit_button("Log Activity"):
             supabase.table("activity_logs").insert(
                 {
-                    "date": str(datetime.now().date()),
+                    "date": str(a_date),
                     "exercise_name": name,
                     "duration_min": dur,
                     "distance_miles": dist,
