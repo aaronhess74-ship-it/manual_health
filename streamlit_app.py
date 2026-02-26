@@ -308,38 +308,37 @@ with tab2:
 # --- TAB 3: ACTIVITY TRACKER ---
 with tab3:
     st.subheader("🏃 Log Activity")
+
+    # 1. Select category first to drive the form
+    category = st.radio(
+        "Activity Type:", ["Strength", "Static", "Cardio"], horizontal=True
+    )
+
     with st.form("activity_form", clear_on_submit=True):
         col1, col2 = st.columns(2)
         ex_date = col1.date_input("Date", value=datetime.now().date())
         ex_name = col2.text_input("Exercise Name (e.g. Walking, Pushups, Planks)")
 
-        category = st.selectbox(
-            "Type",
-            [
-                "Cardio (Duration + Distance)",
-                "Strength (Sets + Reps)",
-                "Static (Duration + Sets + Reps)",
-            ],
-        )
+        c1, c2, c3 = st.columns(3)
 
-        # We use a 4-column layout to keep inputs clean
-        c1, c2, c3, c4 = st.columns(4)
+        # Initialize form variables
+        dur = sets = reps = dist = 0
 
-        # DEFAULT FIELDS
-        dur = c1.number_input("Duration (min)", min_value=0, value=0)
+        # STRENGTH: Sets and Reps only
+        if category == "Strength":
+            sets = c1.number_input("Sets", min_value=0, value=0)
+            reps = c2.number_input("Reps", min_value=0, value=0)
 
-        # CONDITIONAL FIELDS BASED ON SELECTION
-        dist = sets = reps = 0
+        # STATIC: Duration, Sets, Reps
+        elif category == "Static":
+            dur = c1.number_input("Duration (min)", min_value=0, value=0)
+            sets = c2.number_input("Sets", min_value=0, value=0)
+            reps = c3.number_input("Reps", min_value=0, value=0)
 
-        if "Cardio" in category:
+        # CARDIO: Duration and Distance
+        elif category == "Cardio":
+            dur = c1.number_input("Duration (min)", min_value=0, value=0)
             dist = c2.number_input("Distance (mi)", min_value=0.0, step=0.1)
-        elif "Strength" in category:
-            sets = c2.number_input("Sets", min_value=0, value=0)
-            reps = c3.number_input("Reps", min_value=0, value=0)
-        elif "Static" in category:
-            # For things like planks, you might want all three
-            sets = c2.number_input("Sets", min_value=0, value=0)
-            reps = c3.number_input("Reps", min_value=0, value=0)
 
         if st.form_submit_button("Save Activity"):
             if ex_name:
@@ -366,6 +365,8 @@ with tab3:
         )
         if act_res.data:
             df_a = pd.DataFrame(act_res.data)
+
+            # Trend color logic (Duration-based)
             last_dur = df_a["duration_min"].iloc[-1]
             act_color = (
                 COLOR_NORMAL
@@ -380,7 +381,6 @@ with tab3:
 
             st.divider()
             st.subheader("📜 Activity History")
-            # Ensure both duration and distance show up in the history table
             st.dataframe(
                 df_a[
                     [
