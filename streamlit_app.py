@@ -17,9 +17,9 @@ TARGET_PROTEIN = 150
 TARGET_CARBS = 250
 
 # Color Constants
-COLOR_NORMAL = "#2ecc71"  # Green
-COLOR_WARNING = "#f1c40f"  # Amber/Yellow
-COLOR_DANGER = "#e74c3c"  # Red
+COLOR_NORMAL = "#2ecc71"
+COLOR_WARNING = "#f1c40f"
+COLOR_DANGER = "#e74c3c"
 
 tab1, tab2 = st.tabs(["🍴 Nutrition Budget", "🩺 Health Metrics"])
 
@@ -31,216 +31,36 @@ with tab1:
             latest = response.data[0]
             st.subheader(f"Status for {latest['date']}")
             c1, c2, c3 = st.columns(3)
-            c1.metric(
-                "Calories",
-                f"{latest['total_calories']}",
-                f"{TARGET_CALORIES - latest['total_calories']} Left",
-            )
-            c2.metric(
-                "Protein",
-                f"{latest['total_protein']}g",
-                f"{TARGET_PROTEIN - latest['total_protein']}g Left",
-            )
-            c3.metric(
-                "Carbs",
-                f"{latest['total_carbs']}g",
-                f"{TARGET_CARBS - latest['total_carbs']}g Left",
-            )
+            c1.metric("Calories", f"{latest['total_calories']}", f"{TARGET_CALORIES - latest['total_calories']} Left")
+            c2.metric("Protein", f"{latest['total_protein']}g", f"{TARGET_PROTEIN - latest['total_protein']}g Left")
+            c3.metric("Carbs", f"{latest['total_carbs']}g", f"{TARGET_CARBS - latest['total_carbs']}g Left")
     except Exception:
-        st.info("Log a meal below to see today's nutrition status.")
+        st.info("Log a meal below to see today's status.")
 
     st.divider()
-    st.subheader("🍴 Log a Meal")
+    
+    # NEW: MEAL QUICK-ADD
+    st.subheader("⚡ Quick Log (Frequent Foods)")
     try:
-        food_query = supabase.table("foods").select("*").execute()
-        if food_query.data:
-            food_dict = {f["food_name"]: f for f in food_query.data}
-            with st.form("log_form"):
-                selected_name = st.selectbox(
-                    "Select Food", options=list(food_dict.keys())
-                )
-                servings = st.number_input(
-                    "Servings", min_value=0.1, value=1.0, step=0.1
-                )
-                if st.form_submit_button("Add to Diary"):
-                    food_record = food_dict[selected_name]
-                    new_log = {
-                        "food_id": food_record["food_id"],
-                        "servings": servings,
-                        "log_date": str(datetime.now().date()),
-                    }
+        # Fetch top 5 most frequent foods from logs
+        freq_res = supabase.rpc('get_frequent_foods').execute() # Requires a small SQL function
+        # Fallback: Just grab the first 3 from the foods table if RPC isn't setup
+        if not freq_res.data:
+            freq_res = supabase.table("foods").select("*").limit(3).execute()
+        
+        if freq_res.data:
+            cols = st.columns(len(freq_res.data))
+            for idx, food in enumerate(freq_res.data):
+                if cols[idx].button(f"➕ {food['food_name']}", use_container_width=True):
+                    new_log = {"food_id": food['food_id'], "servings": 1.0, "log_date": str(datetime.now().date())}
                     supabase.table("daily_logs").insert(new_log).execute()
+                    st.toast(f"Logged 1 serving of {food['food_name']}!")
                     st.rerun()
     except Exception:
-        pass
+        st.write("Log a few meals to see quick-add buttons here.")
 
-    st.divider()
-    st.subheader("📜 Today's Log History")
-    try:
-        history_res = (
-            supabase.table("daily_logs")
-            .select("log_id, servings, log_date, foods(food_name, calories)")
-            .eq("log_date", str(datetime.now().date()))
-            .execute()
-        )
-        if history_res.data:
-            for item in history_res.data:
-                col1, col2, col3 = st.columns([3, 1, 1])
-                col1.write(
-                    f"**{item['foods']['food_name']}** ({item['servings']} servings)"
-                )
-                col2.write(f"{int(item['foods']['calories'] * item['servings'])} cal")
-                if col3.button("🗑️", key=f"del_{item['log_id']}"):
-                    supabase.table("daily_logs").delete().eq(
-                        "log_id", item["log_id"]
-                    ).execute()
-                    st.rerun()
-        else:
-            st.write("No meals logged yet today.")
-    except Exception:
-        pass
-
-# --- TAB 2: HEALTH METRICS ---
-with tab2:
-    bp_line_color = COLOR_NORMAL
-    glu_line_color = COLOR_NORMAL
-    wgt_line_color = COLOR_NORMAL
-
-    st.subheader("🏷️ Latest Vitals Status")
-    try:
-        last_res = (
-            supabase.table("health_metrics")
-            .select("*")
-            .order("date", desc=True)
-            .order("time", desc=True)
-            .limit(1)
-            .execute()
-        )
-        if last_res.data:
-            v = last_res.data[0]
-            s, d, g, w = (
-                int(v["blood_pressure_systolic"]),
-                int(v["blood_pressure_diastolic"]),
-                int(v["blood_glucose"]),
-                float(v["weight_lb"]),
-            )
-
-            # BP Logic
-            if s < 120 and d < 80:
-                bp_status, bp_line_color = "🟢 Normal", COLOR_NORMAL
-            elif 120 <= s < 130 and d < 80:
-                bp_status, bp_line_color = "🟡 Elevated", COLOR_WARNING
-            else:
-                bp_status, bp_line_color = "🔴 Hypertension", COLOR_DANGER
-
-            # Glucose Logic
-            if g < 100:
-                g_status, glu_line_color = "🟢 Normal", COLOR_NORMAL
-            elif 100 <= g < 126:
-                g_status, glu_line_color = "🟡 Pre-diabetes", COLOR_WARNING
-            else:
-                g_status, glu_line_color = "🔴 High", COLOR_DANGER
-
-            # Weight Logic
-            if 155 <= w <= 179:
-                w_status, wgt_line_color = "🟢 Goal Range", COLOR_NORMAL
-            elif 180 <= w <= 200:
-                w_status, wgt_line_color = "🟡 Warning Range", COLOR_WARNING
-            else:
-                w_status, wgt_line_color = "🔴 Above Range", COLOR_DANGER
-
-            m1, m2, m3 = st.columns(3)
-            with m1:
-                st.metric("Blood Pressure", f"{s}/{d}")
-                st.markdown(f"**Status:** {bp_status}")
-            with m2:
-                st.metric("Glucose", f"{g} mg/dL")
-                st.markdown(f"**Status:** {g_status}")
-            with m3:
-                st.metric("Weight", f"{w} lbs")
-                st.markdown(f"**Status:** {w_status}")
-    except Exception:
-        pass
-
-    st.divider()
-    with st.expander("🩺 Log New Vitals & Weight"):
-        with st.form("vitals_form", clear_on_submit=True):
-            col_d, col_t = st.columns(2)
-            m_date = col_d.date_input("Date", value=datetime.now().date())
-            m_time = col_t.time_input("Time", value=datetime.now().time())
-            c1, c2, c3 = st.columns(3)
-            sys = c1.number_input("Systolic", min_value=50, max_value=250, value=120)
-            dia = c2.number_input("Diastolic", min_value=30, max_value=150, value=80)
-            weight_val = c3.number_input(
-                "Weight (lbs)", min_value=0.0, max_value=500.0, step=0.1
-            )
-            glucose_val = st.number_input(
-                "Blood Glucose (mg/dL)", min_value=0, max_value=600, value=100
-            )
-            if st.form_submit_button("Save Metrics"):
-                new_metric = {
-                    "date": str(m_date),
-                    "time": str(m_time),
-                    "blood_pressure_systolic": sys,
-                    "blood_pressure_diastolic": dia,
-                    "blood_glucose": glucose_val,
-                    "weight_lb": weight_val,
-                }
-                supabase.table("health_metrics").insert(new_metric).execute()
-                st.rerun()
-
-    st.divider()
-    st.subheader("📈 Health Trends")
-    time_view = st.radio("View Range:", ["7 Days", "30 Days", "Year"], horizontal=True)
-    today = datetime.now().date()
-    cutoff_days = (
-        7 if time_view == "7 Days" else (30 if time_view == "30 Days" else 365)
-    )
-    cutoff = today - timedelta(days=cutoff_days)
-
-    try:
-        res = (
-            supabase.table("health_metrics")
-            .select("*")
-            .gte("date", cutoff.isoformat())
-            .order("date", desc=False)
-            .order("time", desc=False)
-            .execute()
-        )
-        if res.data:
-            df = pd.DataFrame(res.data)
-            metrics = [
-                "blood_pressure_systolic",
-                "blood_pressure_diastolic",
-                "blood_glucose",
-                "weight_lb",
-            ]
-            for m in metrics:
-                df[m] = pd.to_numeric(df[m], errors="coerce")
-
-            st.write("#### Blood Pressure")
-            st.line_chart(
-                df,
-                x="date",
-                y=["blood_pressure_systolic", "blood_pressure_diastolic"],
-                color=[bp_line_color, "#5dade2"],
-            )
-
-            weight_df = df[df["weight_lb"] > 0]
-            if not weight_df.empty:
-                st.write("#### Weight (lbs)")
-                st.line_chart(weight_df, x="date", y="weight_lb", color=wgt_line_color)
-
-            st.write("#### Blood Glucose")
-            st.line_chart(df, x="date", y="blood_glucose", color=glu_line_color)
-
-            st.divider()
-            csv = df.to_csv(index=False).encode("utf-8")
-            st.download_button(
-                label="📥 Download Health Data (CSV)",
-                data=csv,
-                file_name=f"health_data_{datetime.now().strftime('%Y-%m-%d')}.csv",
-                mime="text/csv",
-            )
-    except Exception as e:
-        st.error(f"Chart Error: {e}")
+    with st.expander("🍴 Manual Log"):
+        try:
+            food_query = supabase.table("foods").select("*").execute()
+            if food_query.data:
+                food_dict = {f["food_name"]: f for f in food_query.
