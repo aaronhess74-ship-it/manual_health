@@ -17,6 +17,7 @@ TARGET_PROTEIN = 160
 TARGET_FAT_MAX = 60
 TARGET_NET_CARBS = 60
 TARGET_FIBER_MIN = 30
+TARGET_WEIGHT = 180  # Adjust as needed
 
 tab1, tab2, tab3 = st.tabs(
     ["🍴 Nutrition Budget", "🩺 Health Metrics", "🏃 Activity Tracker"]
@@ -213,48 +214,19 @@ with tab1:
 
 # --- TAB 2: HEALTH METRICS ---
 with tab2:
-    try:
-        all_vitals = (
-            supabase.table("health_metrics")
-            .select("*")
-            .order("date", desc=False)
-            .execute()
-        )
-        if all_vitals.data:
-            df_v = pd.DataFrame(all_vitals.data)
-            latest_v = all_vitals.data[-1]
-
-            m1, m2, m3 = st.columns(3)
-            m1.metric(
-                "BP",
-                f"{int(latest_v['blood_pressure_systolic'])}/{int(latest_v['blood_pressure_diastolic'])}",
-            )
-            m2.metric("Glucose", f"{latest_v['blood_glucose']} mg/dL")
-            m3.metric("Weight", f"{latest_v['weight_lb']} lbs")
-
-            st.divider()
-            st.subheader("📈 Health Trends")
-            t1, t2 = st.columns(2)
-            t1.write("**Weight Trend**")
-            t1.line_chart(df_v, x="date", y="weight_lb")
-            t2.write("**Glucose Trend**")
-            t2.line_chart(df_v, x="date", y="blood_glucose")
-
-            st.write("**Blood Pressure Trend**")
-            st.line_chart(
-                df_v,
-                x="date",
-                y=["blood_pressure_systolic", "blood_pressure_diastolic"],
-            )
-    except:
-        st.info("Log some vitals to see trends!")
-
-    with st.expander("➕ Log Vitals"):
-        with st.form("v_form", clear_on_submit=True):
+    # 1. Entry Form at Top
+    with st.expander("➕ Log New Vitals", expanded=True):
+        with st.form("v_form_top", clear_on_submit=True):
             v_date = st.date_input("Date", datetime.now().date())
             c1, c2, c3 = st.columns(3)
-            sys, dia = c1.number_input("Sys", 120), c2.number_input("Dia", 80)
-            weight, glu = c3.number_input("Wt", 180.0), st.number_input("Glu", 100)
+            sys, dia = (
+                c1.number_input("Systolic", 120),
+                c2.number_input("Diastolic", 80),
+            )
+            weight, glu = (
+                c3.number_input("Weight (lbs)", 180.0),
+                st.number_input("Glucose (mg/dL)", 100),
+            )
             if st.form_submit_button("Save Vitals"):
                 supabase.table("health_metrics").insert(
                     {
@@ -266,6 +238,68 @@ with tab2:
                     }
                 ).execute()
                 st.rerun()
+
+    st.divider()
+
+    # 2. Status Metrics with Color Coding
+    try:
+        all_vitals = (
+            supabase.table("health_metrics")
+            .select("*")
+            .order("date", desc=False)
+            .execute()
+        )
+        if all_vitals.data:
+            df_v = pd.DataFrame(all_vitals.data)
+            latest_v = all_vitals.data[-1]
+
+            # Emoji Logic for Vitals
+            def get_bp_status(s):
+                if s < 130:
+                    return "🟢 OK"
+                if s < 140:
+                    return "🟡 NEAR"
+                return "🔴 HIGH"
+
+            def get_glu_status(g):
+                if g < 100:
+                    return "🟢 OK"
+                if g < 126:
+                    return "🟡 NEAR"
+                return "🔴 HIGH"
+
+            m1, m2, m3 = st.columns(3)
+            m1.metric(
+                f"BP {get_bp_status(latest_v['blood_pressure_systolic'])}",
+                f"{int(latest_v['blood_pressure_systolic'])}/{int(latest_v['blood_pressure_diastolic'])}",
+            )
+            m2.metric(
+                f"Glucose {get_glu_status(latest_v['blood_glucose'])}",
+                f"{latest_v['blood_glucose']} mg/dL",
+            )
+            m3.metric(
+                f"Weight",
+                f"{latest_v['weight_lb']} lbs",
+                f"{round(latest_v['weight_lb'] - TARGET_WEIGHT, 1)} vs Target",
+                delta_color="off",
+            )
+
+            st.divider()
+            st.subheader("📈 Health Trends")
+            t1, t2 = st.columns(2)
+            t1.write("**Weight Trend**")
+            t1.line_chart(df_v, x="date", y="weight_lb")
+            t2.write("**Glucose Trend**")
+            t2.line_chart(df_v, x="date", y="blood_glucose")
+
+            st.write("**Blood Pressure Trend (Sys/Dia)**")
+            st.line_chart(
+                df_v,
+                x="date",
+                y=["blood_pressure_systolic", "blood_pressure_diastolic"],
+            )
+    except:
+        st.info("No data yet. Log your first vitals above!")
 
 # --- TAB 3: ACTIVITY TRACKER ---
 with tab3:
