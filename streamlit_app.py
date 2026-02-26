@@ -33,7 +33,7 @@ st.divider()
 st.subheader("🍴 Log a Meal")
 
 try:
-    food_query = supabase.table("food_name").select("*").execute()
+    food_query = supabase.table("foods").select("*").execute()
     if food_query.data:
         # Create a dictionary to store food info
         food_dict = {f["name"]: f for f in food_query.data}
