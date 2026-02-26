@@ -21,12 +21,11 @@ TARGET_WEIGHT = 180
 TARGET_GLUCOSE = 100
 TARGET_BP_SYS = 130
 
-# Define Tabs
 tab1, tab2, tab3, tab4 = st.tabs(
     ["🍴 Nutrition", "🩺 Health Metrics", "🏃 Activity", "📊 Reports & Exports"]
 )
 
-# --- TAB 1: NUTRITION BUDGET ---
+# --- TAB 1: NUTRITION ---
 with tab1:
     try:
         response = supabase.table("daily_variance").select("*").execute()
@@ -175,8 +174,7 @@ with tab1:
                 c_p.number_input("Prot", 0),
                 c_cb.number_input("Carb", 0),
             )
-            c_f, c_fi = st.columns(2)
-            nf, nfi = c_f.number_input("Fat", 0), c_fi.number_input("Fib", 0)
+            nf, nfi = st.number_input("Fat", 0), st.number_input("Fib", 0)
             if st.form_submit_button("Save & Log"):
                 if n_name:
                     res = (
@@ -202,6 +200,24 @@ with tab1:
                             }
                         ).execute()
                         st.rerun()
+
+    st.subheader("📜 Today's Meal History")
+    h_res = (
+        supabase.table("daily_logs")
+        .select("log_id, servings, foods(food_name, calories)")
+        .eq("log_date", str(datetime.now().date()))
+        .execute()
+    )
+    if h_res.data:
+        for item in h_res.data:
+            hc1, hc2, hc3 = st.columns([3, 1, 1])
+            hc1.write(f"**{item['foods']['food_name']}**")
+            hc2.write(f"{int(item['foods']['calories'] * item['servings'])} cal")
+            if hc3.button("🗑️", key=f"del_{item['log_id']}"):
+                supabase.table("daily_logs").delete().eq(
+                    "log_id", item["log_id"]
+                ).execute()
+                st.rerun()
 
 # --- TAB 2: HEALTH METRICS ---
 with tab2:
@@ -230,15 +246,15 @@ with tab2:
                 st.rerun()
 
     try:
-        all_vitals = (
+        all_v = (
             supabase.table("health_metrics")
             .select("*")
             .order("date", desc=False)
             .execute()
         )
-        if all_vitals.data:
-            df_v = pd.DataFrame(all_vitals.data)
-            latest_v = all_vitals.data[-1]
+        if all_v.data:
+            df_v = pd.DataFrame(all_v.data)
+            latest_v = all_v.data[-1]
             C_RED, C_YELLOW, C_GREEN, C_GRAY = (
                 "#e74c3c",
                 "#f1c40f",
@@ -310,7 +326,6 @@ with tab2:
                 ],
                 color=[bp_c, "#95a5a6", C_GRAY],
             )
-
             st.subheader("📜 Vitals History")
             st.dataframe(
                 df_v.sort_values(by="date", ascending=False), use_container_width=True
@@ -318,7 +333,7 @@ with tab2:
     except:
         st.info("No data logged yet.")
 
-# --- TAB 3: ACTIVITY TRACKER ---
+# --- TAB 3: ACTIVITY ---
 with tab3:
     cat = st.radio("Type:", ["Strength", "Static", "Cardio"], horizontal=True)
     with st.form("act_form"):
@@ -346,44 +361,99 @@ with tab3:
             ).execute()
             st.rerun()
 
-# --- TAB 4: REPORTS & EXPORTS ---
-with tab4:
-    st.subheader("📂 Central Data Export")
-    report_type = st.selectbox(
-        "Select Report Type", ["Nutrition History", "Health Vitals", "Activity Logs"]
-    )
-
-    if report_type == "Nutrition History":
-        res = (
-            supabase.table("daily_variance")
-            .select("*")
-            .order("date", desc=True)
-            .execute()
-        )
-    elif report_type == "Health Vitals":
-        res = (
-            supabase.table("health_metrics")
-            .select("*")
-            .order("date", desc=True)
-            .execute()
-        )
-    else:
-        res = (
+    st.divider()
+    try:
+        a_res = (
             supabase.table("activity_logs")
             .select("*")
-            .order("date", desc=True)
+            .order("date", desc=False)
             .execute()
         )
+        if a_res.data:
+            df_a = pd.DataFrame(a_res.data)
+            st.subheader("🏃 Activity Trends")
+            st.line_chart(df_a, x="date", y="duration_min")
+            st.subheader("📜 Activity History")
+            st.dataframe(
+                df_a.sort_values(by="date", ascending=False), use_container_width=True
+            )
+    except:
+        pass
 
-    if res.data:
-        df_report = pd.DataFrame(res.data)
-        st.dataframe(df_report, use_container_width=True)
-        csv = df_report.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            label=f"📥 Download {report_type} as CSV",
-            data=csv,
-            file_name=f"{report_type.lower().replace(' ', '_')}_{datetime.now().date()}.csv",
-            mime="text/csv",
+# --- TAB 4: REPORTS & EXPORTS ---
+with tab4:
+    st.subheader("📊 Performance & Data Central")
+
+    # 1. Goal Performance Feature
+    try:
+        nut_data = (
+            supabase.table("daily_variance")
+            .select("*")
+            .order("date", desc=False)
+            .execute()
         )
+        if nut_data.data:
+            df_perf = pd.DataFrame(nut_data.data)
+            df_perf["Cals_Pass"] = df_perf["total_calories"] <= TARGET_CALORIES
+            df_perf["Prot_Pass"] = df_perf["total_protein"] >= TARGET_PROTEIN
+            df_perf["Carb_Pass"] = df_perf["total_net_carbs"] <= TARGET_NET_CARBS
+
+            days_tracked = len(df_perf)
+            perfect_days = len(
+                df_perf[
+                    df_perf["Cals_Pass"] & df_perf["Prot_Pass"] & df_perf["Carb_Pass"]
+                ]
+            )
+            win_rate = (perfect_days / days_tracked) * 100 if days_tracked > 0 else 0
+
+            st.info(
+                f"🏆 Overall Goal Win Rate: **{win_rate:.1f}%** ({perfect_days} perfect days out of {days_tracked})"
+            )
+    except:
+        pass
+
+    st.divider()
+
+    # 2. Universal Report History (Master Table)
+    st.subheader("📁 Master Report History")
+    report_type = st.selectbox(
+        "Select View",
+        [
+            "Nutrition Variance",
+            "Health Vitals",
+            "Activity Logs",
+            "Master Combined Report",
+        ],
+    )
+
+    if report_type == "Master Combined Report":
+        # Pull everything and join on Date
+        n = pd.DataFrame(supabase.table("daily_variance").select("*").execute().data)
+        h = pd.DataFrame(supabase.table("health_metrics").select("*").execute().data)
+        if not n.empty and not h.empty:
+            df_master = pd.merge(n, h, on="date", how="outer").sort_values(
+                by="date", ascending=False
+            )
+            st.dataframe(df_master, use_container_width=True)
+            csv = df_master.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "📥 Download Master CSV", csv, "master_report.csv", "text/csv"
+            )
+        else:
+            st.warning("Not enough data to combine reports.")
     else:
-        st.warning("No data found for this report type.")
+        tbl = (
+            "daily_variance"
+            if report_type == "Nutrition Variance"
+            else "health_metrics"
+            if report_type == "Health Vitals"
+            else "activity_logs"
+        )
+        res = supabase.table(tbl).select("*").order("date", desc=True).execute()
+        if res.data:
+            df_r = pd.DataFrame(res.data)
+            st.dataframe(df_r, use_container_width=True)
+            csv = df_r.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                f"📥 Download {report_type}", csv, f"{tbl}.csv", "text/csv"
+            )
