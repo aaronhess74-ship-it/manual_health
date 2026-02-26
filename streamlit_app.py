@@ -1,6 +1,6 @@
 import streamlit as st
 from supabase import create_client
-from datetime import datetime
+from datetime import datetime, timedelta
 import pandas as pd
 
 # 1. Setup Connection
@@ -32,7 +32,6 @@ with tab1:
                 f"{latest['total_calories']}",
                 f"{TARGET_CALORIES - latest['total_calories']} Left",
             )
-            # Using protein_variance if your view has it, otherwise math
             c2.metric(
                 "Protein",
                 f"{latest['total_protein']}g",
@@ -112,13 +111,26 @@ with tab2:
                 st.error(f"Error saving to Supabase: {e}")
 
     st.divider()
+
+    # --- TIME VIEW FILTER ---
     st.subheader("📈 Health Trends")
+    time_view = st.radio("View Range:", ["7 Days", "30 Days", "Year"], horizontal=True)
+
+    # Calculate cutoff date
+    today = datetime.now()
+    if time_view == "7 Days":
+        cutoff = today - timedelta(days=7)
+    elif time_view == "30 Days":
+        cutoff = today - timedelta(days=30)
+    else:
+        cutoff = today - timedelta(days=365)
 
     try:
-        # Fetch data sorted chronologically
+        # Fetch data (no limit, let the filter handle it)
         res = (
             supabase.table("health_metrics")
             .select("*")
+            .gte("date", cutoff.date().isoformat())
             .order("date", desc=False)
             .order("time", desc=False)
             .execute()
@@ -127,7 +139,7 @@ with tab2:
         if res.data:
             df = pd.DataFrame(res.data)
 
-            # Combine Date and Time into a single index for high-resolution plotting
+            # Create the datetime column for precision
             df["datetime"] = pd.to_datetime(
                 df["date"].astype(str) + " " + df["time"].astype(str),
                 format="mixed",
@@ -135,7 +147,7 @@ with tab2:
             )
             df = df.dropna(subset=["datetime"]).sort_values("datetime")
 
-            # Ensure metrics are numeric
+            # Ensure numeric
             metrics = [
                 "blood_pressure_systolic",
                 "blood_pressure_diastolic",
@@ -145,43 +157,27 @@ with tab2:
             for m in metrics:
                 df[m] = pd.to_numeric(df[m], errors="coerce")
 
-            # Set datetime as index for the charts
-            df_chart = df.set_index("datetime")
+            # --- PLOTTING ---
+            # To get daily labels on the bottom but keep high-res data,
+            # we pass the full dataframe but tell Streamlit the X-axis is 'datetime'
 
-            # 1. Blood Pressure - Shows every entry including multiple per day
-            st.write("#### Blood Pressure History")
+            st.write(f"#### Blood Pressure ({time_view})")
             st.line_chart(
-                df_chart[["blood_pressure_systolic", "blood_pressure_diastolic"]]
+                df,
+                x="datetime",
+                y=["blood_pressure_systolic", "blood_pressure_diastolic"],
             )
 
-            # 2. Weight Trend - Filters out entries where weight wasn't recorded (0 or NaN)
-            weight_data = df_chart[df_chart["weight_lb"] > 0]["weight_lb"]
-            if not weight_data.empty:
-                st.write("#### Weight Trend (lbs)")
-                st.line_chart(weight_data)
+            weight_df = df[df["weight_lb"] > 0]
+            if not weight_df.empty:
+                st.write(f"#### Weight Trend ({time_view})")
+                st.line_chart(weight_df, x="datetime", y="weight_lb")
 
-            # 3. Blood Glucose - Shows every entry
-            st.write("#### Blood Glucose History")
-            st.line_chart(df_chart["blood_glucose"])
-
-            # Optional: History table to see the specific times
-            with st.expander("📄 View Detailed Log"):
-                st.dataframe(
-                    df[
-                        [
-                            "date",
-                            "time",
-                            "blood_pressure_systolic",
-                            "blood_pressure_diastolic",
-                            "blood_glucose",
-                            "weight_lb",
-                            "notes",
-                        ]
-                    ]
-                )
+            st.write(f"#### Blood Glucose ({time_view})")
+            st.line_chart(df, x="datetime", y="blood_glucose")
 
         else:
-            st.info("No health data found. Log your first entry above!")
+            st.info(f"No data found for the last {time_view}.")
 
     except Exception as e:
         st.error(f"Chart Display Error: {e}")
