@@ -32,6 +32,7 @@ with tab1:
                 f"{latest['total_calories']}",
                 f"{TARGET_CALORIES - latest['total_calories']} Left",
             )
+            # Using protein_variance if your view has it, otherwise math
             c2.metric(
                 "Protein",
                 f"{latest['total_protein']}g",
@@ -114,26 +115,27 @@ with tab2:
     st.subheader("📈 Health Trends")
 
     try:
+        # Fetch data sorted chronologically
         res = (
             supabase.table("health_metrics")
             .select("*")
-            .order("date", desc=True)
-            .limit(50)
+            .order("date", desc=False)
+            .order("time", desc=False)
             .execute()
         )
 
         if res.data:
             df = pd.DataFrame(res.data)
 
-            # 1. Parsing Date/Time
-            df["timestamp"] = pd.to_datetime(
+            # Combine Date and Time into a single index for high-resolution plotting
+            df["datetime"] = pd.to_datetime(
                 df["date"].astype(str) + " " + df["time"].astype(str),
                 format="mixed",
                 errors="coerce",
             )
-            df = df.dropna(subset=["timestamp"]).sort_values("timestamp")
+            df = df.dropna(subset=["datetime"]).sort_values("datetime")
 
-            # 2. Convert metrics to numeric for accurate Y-axis scaling
+            # Ensure metrics are numeric
             metrics = [
                 "blood_pressure_systolic",
                 "blood_pressure_diastolic",
@@ -143,25 +145,40 @@ with tab2:
             for m in metrics:
                 df[m] = pd.to_numeric(df[m], errors="coerce")
 
-            # --- Visualizations ---
+            # Set datetime as index for the charts
+            df_chart = df.set_index("datetime")
 
-            # Blood Pressure (Left axis: Pressure, Bottom: Date/Time)
-            st.write("#### Blood Pressure (Systolic & Diastolic)")
+            # 1. Blood Pressure - Shows every entry including multiple per day
+            st.write("#### Blood Pressure History")
             st.line_chart(
-                df,
-                x="timestamp",
-                y=["blood_pressure_systolic", "blood_pressure_diastolic"],
+                df_chart[["blood_pressure_systolic", "blood_pressure_diastolic"]]
             )
 
-            # Weight (Left axis: lbs, Bottom: Date/Time)
-            weight_df = df[df["weight_lb"] > 0].copy()
-            if not weight_df.empty:
+            # 2. Weight Trend - Filters out entries where weight wasn't recorded (0 or NaN)
+            weight_data = df_chart[df_chart["weight_lb"] > 0]["weight_lb"]
+            if not weight_data.empty:
                 st.write("#### Weight Trend (lbs)")
-                st.line_chart(weight_df, x="timestamp", y="weight_lb")
+                st.line_chart(weight_data)
 
-            # Glucose (Left axis: mg/dL, Bottom: Date/Time)
-            st.write("#### Blood Glucose Trend")
-            st.line_chart(df, x="timestamp", y="blood_glucose")
+            # 3. Blood Glucose - Shows every entry
+            st.write("#### Blood Glucose History")
+            st.line_chart(df_chart["blood_glucose"])
+
+            # Optional: History table to see the specific times
+            with st.expander("📄 View Detailed Log"):
+                st.dataframe(
+                    df[
+                        [
+                            "date",
+                            "time",
+                            "blood_pressure_systolic",
+                            "blood_pressure_diastolic",
+                            "blood_glucose",
+                            "weight_lb",
+                            "notes",
+                        ]
+                    ]
+                )
 
         else:
             st.info("No health data found. Log your first entry above!")
