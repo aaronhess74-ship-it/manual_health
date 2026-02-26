@@ -125,7 +125,7 @@ with tab2:
         if res.data:
             df = pd.DataFrame(res.data)
 
-            # Robust Date Conversion: handles microseconds or inconsistent time strings
+            # 1. Parsing Date/Time
             df["timestamp"] = pd.to_datetime(
                 df["date"].astype(str) + " " + df["time"].astype(str),
                 format="mixed",
@@ -133,36 +133,36 @@ with tab2:
             )
             df = df.dropna(subset=["timestamp"]).sort_values("timestamp")
 
-            # Ensure numeric types for charting
-            cols_to_fix = [
+            # 2. Convert metrics to numeric for accurate Y-axis scaling
+            metrics = [
                 "blood_pressure_systolic",
                 "blood_pressure_diastolic",
                 "blood_glucose",
                 "weight_lb",
             ]
-            for col in cols_to_fix:
-                if col in df.columns:
-                    df[col] = pd.to_numeric(df[col], errors="coerce")
+            for m in metrics:
+                df[m] = pd.to_numeric(df[m], errors="coerce")
 
-            # 1. Blood Pressure Chart
-            st.write("#### Blood Pressure")
+            # --- Visualizations ---
+
+            # Blood Pressure (Left axis: Pressure, Bottom: Date/Time)
+            st.write("#### Blood Pressure (Systolic & Diastolic)")
             st.line_chart(
                 df,
                 x="timestamp",
                 y=["blood_pressure_systolic", "blood_pressure_diastolic"],
             )
 
-            # 2. Weight Chart
-            if "weight_lb" in df.columns:
-                # Filter out zero/null weight entries for a cleaner line
-                weight_df = df[df["weight_lb"] > 0].copy()
-                if not weight_df.empty:
-                    st.write("#### Weight (lbs)")
-                    st.line_chart(weight_df, x="timestamp", y="weight_lb")
+            # Weight (Left axis: lbs, Bottom: Date/Time)
+            weight_df = df[df["weight_lb"] > 0].copy()
+            if not weight_df.empty:
+                st.write("#### Weight Trend (lbs)")
+                st.line_chart(weight_df, x="timestamp", y="weight_lb")
 
-            # 3. Glucose Chart
-            st.write("#### Blood Glucose")
+            # Glucose (Left axis: mg/dL, Bottom: Date/Time)
+            st.write("#### Blood Glucose Trend")
             st.line_chart(df, x="timestamp", y="blood_glucose")
+
         else:
             st.info("No health data found. Log your first entry above!")
 
