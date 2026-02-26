@@ -36,7 +36,7 @@ try:
     food_query = supabase.table("foods").select("*").execute()
     if food_query.data:
         # Create a dictionary to store food info
-        food_dict = {f["name"]: f for f in food_query.data}
+        food_dict = {f["food_name"]: f for f in food_query.data}
 
         with st.form("log_form"):
             selected_name = st.selectbox("Select Food", options=list(food_dict.keys()))
