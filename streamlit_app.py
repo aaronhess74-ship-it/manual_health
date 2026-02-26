@@ -1,24 +1,29 @@
 import streamlit as st
 from supabase import create_client
 from datetime import datetime
+import pandas as pd
 
 # 1. Setup Connection
 url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase = create_client(url, key)
 
+st.set_page_config(page_title="My Health Dashboard", layout="wide")
 st.title("💪 My Health Dashboard")
 
-# Create Tabs for Organization
+# Create Tabs to separate Nutrition and Health Vitals
 tab1, tab2 = st.tabs(["🍴 Nutrition Budget", "🩺 Health Metrics"])
 
-# --- TAB 1: NUTRITION (Your existing working logic) ---
+# --- TAB 1: NUTRITION BUDGET (Foods) ---
 with tab1:
     try:
+        # Fetch targets and current totals from your daily_variance view
         response = supabase.table("daily_variance").select("*").execute()
         if response.data:
             latest = response.data[0]
             st.subheader(f"Status for {latest['date']}")
+
+            # Metrics Row
             col1, col2, col3 = st.columns(3)
             col1.metric(
                 "Calories",
@@ -36,11 +41,12 @@ with tab1:
                 f"{latest['carbs_variance'] * -1} Left",
             )
     except:
-        st.info("Log a meal to see today's budget.")
+        st.info("Log a meal below to see today's nutrition status.")
 
     st.divider()
 
-    # Log Meal Form
+    # Log Meal Section
+    st.subheader("🍴 Log a Meal")
     try:
         food_query = supabase.table("foods").select("*").execute()
         if food_query.data:
@@ -90,7 +96,7 @@ with tab1:
                 st.success(f"Added {f_name}!")
                 st.rerun()
 
-# --- TAB 2: HEALTH METRICS (New Section) ---
+# --- TAB 2: HEALTH METRICS (Vitals & Charts) ---
 with tab2:
     st.subheader("🩺 Log Vitals")
 
@@ -121,25 +127,38 @@ with tab2:
                 "blood_glucose": glucose,
                 "notes": m_notes,
             }
-            try:
-                # Target the exact table name 'health_metrics'
-                supabase.table("health_metrics").insert(new_metric).execute()
-                st.success("Vitals saved successfully!")
-            except Exception as e:
-                st.error(f"Error saving vitals: {e}")
+            supabase.table("health_metrics").insert(new_metric).execute()
+            st.success("Vitals saved!")
+            st.rerun()
 
-    # Optional: Show recent history
     st.divider()
-    st.subheader("Recent Logs")
+    st.subheader("📈 Health Trends")
+
     try:
-        history = (
+        # Fetch last 30 entries for trending
+        history_res = (
             supabase.table("health_metrics")
             .select("*")
             .order("date", desc=True)
-            .limit(5)
+            .limit(30)
             .execute()
         )
-        if history.data:
-            st.table(history.data)
-    except:
-        pass
+
+        if history_res.data:
+            df = pd.DataFrame(history_res.data)
+            # Ensure date is sorted correctly for the chart
+            df["date"] = pd.to_datetime(df["date"])
+            df = df.sort_values("date")
+
+            # Display Charts
+            st.write("#### Blood Glucose Trend")
+            st.line_chart(data=df, x="date", y="blood_glucose")
+
+            st.write("#### Blood Pressure Trend")
+            st.line_chart(
+                data=df,
+                x="date",
+                y=["blood_pressure_systolic", "blood_pressure_diastolic"],
+            )
+    except Exception as e:
+        st.info("Add a few more logs to see your trend charts!")
