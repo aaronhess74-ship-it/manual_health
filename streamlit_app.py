@@ -8,67 +8,68 @@ supabase = create_client(url, key)
 
 st.title("💪 My Health Budget")
 
+# --- DEBUGGER: Let's see what the app can actually see ---
+with st.expander("Connection Debugger"):
+    try:
+        test_foods = supabase.table("foods").select("count", count="exact").execute()
+        st.write(f"✅ Connected! Found {test_foods.count} items in your 'foods' table.")
+    except Exception as e:
+        st.error(f"❌ Connection Error: {e}")
+
 # --- PART 1: THE DASHBOARD ---
 try:
-    # Fetch the view we made
     response = supabase.table("daily_variance").select("*").execute()
-    data = response.data
-
-    if data:
-        latest = data[0]
+    if response.data:
+        latest = response.data[0]
         st.subheader(f"Status for {latest['date']}")
 
-        # Flip the math: If variance is -1680, it means we have 1680 LEFT to eat.
-        # We multiply by -1 so that 'under' looks like a positive 'budget'
         cal_budget = latest["calorie_variance"] * -1
         prot_budget = latest["protein_variance"] * -1
         carb_budget = latest["carbs_variance"] * -1
 
         col1, col2, col3 = st.columns(3)
-
-        # 'Normal' delta shows green for up, red for down.
-        # For calories, 'inverse' makes it green if we are under our limit.
         col1.metric(
-            "Calories Eaten",
-            f"{latest['total_calories']}",
-            f"{cal_budget} Remaining",
-            delta_color="normal",
+            "Calories Eaten", f"{latest['total_calories']}", f"{cal_budget} Remaining"
         )
         col2.metric(
             "Protein (g)", f"{latest['total_protein']}", f"{prot_budget} Remaining"
         )
         col3.metric("Carbs (g)", f"{latest['total_carbs']}", f"{carb_budget} Remaining")
-
-    else:
-        st.info("No logs for today yet!")
-
 except Exception as e:
-    st.error(f"Display Error: {e}")
+    st.info("Waiting for dashboard data...")
 
 st.divider()
 
-# --- PART 2: LOG A MEAL (The Input) ---
+# --- PART 2: THE DROPDOWN ---
 st.subheader("🍴 Quick Log Meal")
 
-with st.form("meal_form", clear_on_submit=True):
-    # Get food list from your 'foods' table for the dropdown
+try:
+    # We fetch the food list
     food_query = supabase.table("foods").select("id, food_name").execute()
-    food_options = {f["food_name"]: f["id"] for f in food_query.data}
 
-    selected_food = st.selectbox("Select Food", options=list(food_options.keys()))
-    servings = st.number_input("How many servings?", min_value=0.1, value=1.0, step=0.1)
+    if food_query.data:
+        food_options = {f["food_name"]: f["id"] for f in food_query.data}
 
-    submit_button = st.form_submit_button("Add to Diary")
+        with st.form("meal_form", clear_on_submit=True):
+            selected_food = st.selectbox(
+                "Select Food", options=list(food_options.keys())
+            )
+            servings = st.number_input("Servings", min_value=0.1, value=1.0)
+            submit = st.form_submit_button("Add to Diary")
 
-    if submit_button:
-        # Save to your 'daily_logs' table
-        new_log = {
-            "food_id": food_options[selected_food],
-            "servings": servings,
-            "log_date": str(latest["date"]),  # Logs to current day shown above
-        }
+            if submit:
+                new_log = {
+                    "food_id": food_options[selected_food],
+                    "servings": servings,
+                    "log_date": str(latest["date"])
+                    if "latest" in locals()
+                    else "2026-02-26",
+                }
+                supabase.table("daily_logs").insert(new_log).execute()
+                st.success("Logged!")
+                st.rerun()
+    else:
+        st.warning("No foods found in your 'foods' table. Add some in Supabase first!")
 
-        result = supabase.table("daily_logs").insert(new_log).execute()
-        if result:
-            st.success(f"Added {servings}x {selected_food}!")
-            st.rerun()  # Refresh the page to show new totals
+except Exception as e:
+    st.error(f"Dropdown Error: {e}")
