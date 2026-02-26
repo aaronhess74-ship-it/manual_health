@@ -468,7 +468,7 @@ with tab4:
 
     if uploaded_file is not None:
         try:
-            df_raw = pd.read_csv(uploaded_file)
+            df_raw = pd.read_csv(uploaded_file, on_bad_lines="skip", engine="python")
             df_raw.columns = df_raw.columns.str.strip()
 
             if import_type == "Daily Food & Nutrition (Kaggle)":
