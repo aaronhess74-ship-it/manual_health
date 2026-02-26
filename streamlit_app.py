@@ -174,7 +174,6 @@ with tab1:
                         "Calories": item["foods"]["calories"] * item["servings"],
                     }
                 )
-
             if df_history:
                 csv_food = pd.DataFrame(df_history).to_csv(index=False).encode("utf-8")
                 st.download_button(
@@ -317,26 +316,30 @@ with tab3:
         category = st.selectbox(
             "Type",
             [
-                "Strength (Sets/Reps)",
-                "Cardio (Distance + Duration)",
-                "Static (Duration + Sets/Reps)",
+                "Cardio (Duration + Distance)",
+                "Strength (Sets + Reps)",
+                "Static (Duration + Sets + Reps)",
             ],
         )
 
+        # We use a 4-column layout to keep inputs clean
         c1, c2, c3, c4 = st.columns(4)
 
-        # Initialize variables
-        dur = sets = reps = dist = 0
-
-        # Logic for displaying and capturing fields
+        # DEFAULT FIELDS
         dur = c1.number_input("Duration (min)", min_value=0, value=0)
 
-        if "Strength" in category or "Static" in category:
-            sets = c2.number_input("Sets", min_value=0, value=0)
-            reps = c3.number_input("Reps", min_value=0, value=0)
+        # CONDITIONAL FIELDS BASED ON SELECTION
+        dist = sets = reps = 0
 
         if "Cardio" in category:
             dist = c2.number_input("Distance (mi)", min_value=0.0, step=0.1)
+        elif "Strength" in category:
+            sets = c2.number_input("Sets", min_value=0, value=0)
+            reps = c3.number_input("Reps", min_value=0, value=0)
+        elif "Static" in category:
+            # For things like planks, you might want all three
+            sets = c2.number_input("Sets", min_value=0, value=0)
+            reps = c3.number_input("Reps", min_value=0, value=0)
 
         if st.form_submit_button("Save Activity"):
             if ex_name:
@@ -363,8 +366,6 @@ with tab3:
         )
         if act_res.data:
             df_a = pd.DataFrame(act_res.data)
-
-            # Use most recent duration for trend color
             last_dur = df_a["duration_min"].iloc[-1]
             act_color = (
                 COLOR_NORMAL
@@ -379,6 +380,7 @@ with tab3:
 
             st.divider()
             st.subheader("📜 Activity History")
+            # Ensure both duration and distance show up in the history table
             st.dataframe(
                 df_a[
                     [
