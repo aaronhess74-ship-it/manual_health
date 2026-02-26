@@ -21,6 +21,7 @@ TARGET_WEIGHT = 180
 TARGET_GLUCOSE = 100
 TARGET_BP_SYS = 130
 
+# Define Tabs
 tab1, tab2, tab3, tab4 = st.tabs(
     ["🍴 Nutrition", "🩺 Health Metrics", "🏃 Activity", "📊 Reports & Exports"]
 )
@@ -34,14 +35,10 @@ with tab1:
             st.subheader(f"Status for {latest['date']}")
             c1, c2, c3, c4, c5 = st.columns(5)
 
-            cals, prot = (
-                float(latest.get("total_calories", 0)),
-                float(latest.get("total_protein", 0)),
-            )
-            net_c, fat = (
-                float(latest.get("total_net_carbs", 0)),
-                float(latest.get("total_fat", 0)),
-            )
+            cals = float(latest.get("total_calories", 0))
+            prot = float(latest.get("total_protein", 0))
+            net_c = float(latest.get("total_net_carbs", 0))
+            fat = float(latest.get("total_fat", 0))
             fib = float(latest.get("total_fiber", 0))
 
             def get_status_icon(curr, target, is_ceiling=True):
@@ -326,6 +323,7 @@ with tab2:
                 ],
                 color=[bp_c, "#95a5a6", C_GRAY],
             )
+
             st.subheader("📜 Vitals History")
             st.dataframe(
                 df_v.sort_values(by="date", ascending=False), use_container_width=True
@@ -414,8 +412,8 @@ with tab4:
 
     st.divider()
 
-    # 2. Universal Report History (Master Table)
-    st.subheader("📁 Master Report History")
+    # 2. Universal Report View
+    st.subheader("📁 Data View & Export")
     report_type = st.selectbox(
         "Select View",
         [
@@ -427,7 +425,6 @@ with tab4:
     )
 
     if report_type == "Master Combined Report":
-        # Pull everything and join on Date
         n = pd.DataFrame(supabase.table("daily_variance").select("*").execute().data)
         h = pd.DataFrame(supabase.table("health_metrics").select("*").execute().data)
         if not n.empty and not h.empty:
@@ -449,25 +446,6 @@ with tab4:
             if report_type == "Health Vitals"
             else "activity_logs"
         )
-# --- TAB 4: REPORTS & EXPORTS ---
-with tab4:
-    st.subheader("📊 Performance & Data Central")
-    
-    # ... (Your existing reports code is here) ...
-
-    # EVERYTHING BELOW MUST BE ALIGNED WITH THE SUBHEADER ABOVE
-    st.divider()
-    st.subheader("📥 Universal Food Importer")
-    st.write("Supports Kaggle (Daily Food) and USDA (Foundation Foods) formats.")
-
-    import_type = st.selectbox("Select Source Format", ["Daily Food & Nutrition (Kaggle)", "USDA FoodData Central"])
-    uploaded_file = st.file_uploader("Upload CSV File", type="csv")
-
-    if uploaded_file is not None:
-        try:
-            df_raw = pd.read_csv(uploaded_file)
-            # ... (the rest of the mapping code)
-
         res = supabase.table(tbl).select("*").order("date", desc=True).execute()
         if res.data:
             df_r = pd.DataFrame(res.data)
@@ -476,3 +454,56 @@ with tab4:
             st.download_button(
                 f"📥 Download {report_type}", csv, f"{tbl}.csv", "text/csv"
             )
+
+    # 3. Universal Food Importer
+    st.divider()
+    st.subheader("📥 Universal Food Importer")
+    st.write("Upload Kaggle or USDA CSVs here.")
+
+    import_type = st.selectbox(
+        "Select Source Format",
+        ["Daily Food & Nutrition (Kaggle)", "USDA FoodData Central"],
+    )
+    uploaded_file = st.file_uploader("Upload CSV File", type="csv")
+
+    if uploaded_file is not None:
+        try:
+            df_raw = pd.read_csv(uploaded_file)
+            df_raw.columns = df_raw.columns.str.strip()
+
+            if import_type == "Daily Food & Nutrition (Kaggle)":
+                mapping = {
+                    "Food_Item": "food_name",
+                    "Calories (kcal)": "calories",
+                    "Protein (g)": "protein_g",
+                    "Carbohydrates (g)": "carbs_g",
+                    "Fat (g)": "fat_g",
+                    "Fiber (g)": "fiber_g",
+                }
+            else:
+                mapping = {
+                    "description": "food_name",
+                    "Energy": "calories",
+                    "Protein": "protein_g",
+                    "Carbohydrate, by difference": "carbs_g",
+                    "Total lipid (fat)": "fat_g",
+                    "Fiber, total dietary": "fiber_g",
+                }
+
+            existing_cols = [col for col in mapping.keys() if col in df_raw.columns]
+            df_mapped = df_raw[existing_cols].rename(columns=mapping)
+
+            for col in ["calories", "protein_g", "carbs_g", "fat_g", "fiber_g"]:
+                if col not in df_mapped.columns:
+                    df_mapped[col] = 0.0
+
+            st.write(f"Previewing {len(df_mapped)} items:")
+            st.dataframe(df_mapped.head())
+
+            if st.button("🚀 Confirm Universal Import"):
+                food_list = df_mapped.to_dict(orient="records")
+                supabase.table("foods").insert(food_list).execute()
+                st.success(f"Successfully imported {len(food_list)} items!")
+                st.balloons()
+        except Exception as e:
+            st.error(f"Import Error: {e}")
