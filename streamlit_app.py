@@ -48,7 +48,7 @@ try:
     food_query = supabase.table("foods").select("id, food_name").execute()
 
     if food_query.data:
-        food_options = {f["food_name"]: f["id"] for f in food_query.data}
+        food_options = {f["food_name"]: f["food_id"] for f in food_query.data}
 
         with st.form("meal_form", clear_on_submit=True):
             selected_food = st.selectbox(
