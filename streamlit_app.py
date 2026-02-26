@@ -78,8 +78,9 @@ with st.expander("➕ Add New Food to Library"):
         submit_food = st.form_submit_button("Save to Library")
 
         if submit_food and f_name:
+            # We are mapping your Form Inputs to your Supabase Columns
             new_food = {
-                "name": f_name,
+                "food_name": f_name,  # Corrected key
                 "brand": f_brand,
                 "serving_size": f_size,
                 "calories": f_cal,
@@ -88,6 +89,7 @@ with st.expander("➕ Add New Food to Library"):
                 "fat_g": f_fat,
             }
             try:
+                # Inserting into the 'foods' table
                 supabase.table("foods").insert(new_food).execute()
                 st.success(f"Added {f_name} to your library!")
                 st.rerun()
