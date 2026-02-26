@@ -312,7 +312,7 @@ with tab3:
     with st.form("activity_form", clear_on_submit=True):
         col1, col2 = st.columns(2)
         ex_date = col1.date_input("Date", value=datetime.now().date())
-        ex_name = col2.text_input("Exercise Name (e.g. Walking, Running, Dead Hangs)")
+        ex_name = col2.text_input("Exercise Name (e.g. Walking, Pushups, Planks)")
 
         category = st.selectbox(
             "Type",
@@ -323,28 +323,30 @@ with tab3:
             ],
         )
 
-        c1, c2, c3 = st.columns(3)
-        duration = c1.number_input("Duration (minutes)", min_value=0, value=0)
+        c1, c2, c3, c4 = st.columns(4)
 
-        # Modified Logic: Static now allows Sets/Reps + Duration
-        sets = reps = distance = 0
+        # Initialize variables
+        dur = sets = reps = dist = 0
+
+        # Logic for displaying and capturing fields
+        dur = c1.number_input("Duration (min)", min_value=0, value=0)
+
         if "Strength" in category or "Static" in category:
             sets = c2.number_input("Sets", min_value=0, value=0)
             reps = c3.number_input("Reps", min_value=0, value=0)
 
-        # Modified Logic: Cardio now forces Duration and allows Distance
         if "Cardio" in category:
-            distance = c2.number_input("Distance (miles)", min_value=0.0, step=0.1)
+            dist = c2.number_input("Distance (mi)", min_value=0.0, step=0.1)
 
         if st.form_submit_button("Save Activity"):
             if ex_name:
                 act_data = {
                     "date": str(ex_date),
                     "exercise_name": ex_name,
-                    "duration_min": duration,
+                    "duration_min": dur,
                     "sets": sets,
                     "reps": reps,
-                    "distance_miles": distance,
+                    "distance_miles": dist,
                     "type": category,
                 }
                 supabase.table("activity_logs").insert(act_data).execute()
@@ -377,7 +379,6 @@ with tab3:
 
             st.divider()
             st.subheader("📜 Activity History")
-            # Showing both Duration and Distance in history
             st.dataframe(
                 df_a[
                     [
