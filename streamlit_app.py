@@ -25,7 +25,7 @@ tab1, tab2, tab3 = st.tabs(
     ["🍴 Nutrition Budget", "🩺 Health Metrics", "🏃 Activity Tracker"]
 )
 
-# --- TAB 1: NUTRITION BUDGET ---
+# --- TAB 1: NUTRITION BUDGET (With Logic Zones) ---
 with tab1:
     try:
         response = supabase.table("daily_variance").select("*").execute()
@@ -41,12 +41,32 @@ with tab1:
             fat = int(latest.get("total_fat", 0))
             fib = int(latest.get("total_fiber", 0))
 
+            # Helper for Ceiling Targets (Calories, Net Carbs, Fat)
+            # Red: Over Target | Yellow: Within 10% below | Green: 11%+ below
+            def get_ceiling_delta(current, target):
+                if current > target:
+                    return "inverse"  # Red
+                if current >= (target * 0.90):  # Within 10% (90% to 100% of target)
+                    return "off"  # Yellow/Grey
+                return "normal"  # Green (11%+ below)
+
+            # Helper for Floor Targets (Protein, Fiber)
+            # Green: At or Above | Yellow: Within 10% below | Red: 11%+ below
+            def get_floor_delta(current, target):
+                if current >= target:
+                    return "normal"  # Green
+                if current >= (
+                    target * 0.90
+                ):  # Within 10% below (90% to 99% of target)
+                    return "off"  # Yellow/Grey
+                return "inverse"  # Red (11%+ below)
+
             # 1. Calories (Ceiling)
             c1.metric(
                 "Calories",
                 f"{cals}",
                 f"{TARGET_CALORIES - cals} Left",
-                delta_color="normal" if cals <= TARGET_CALORIES else "inverse",
+                delta_color=get_ceiling_delta(cals, TARGET_CALORIES),
             )
 
             # 2. Protein (Floor)
@@ -54,7 +74,7 @@ with tab1:
                 "Protein",
                 f"{prot}g",
                 f"{prot - TARGET_PROTEIN} vs Target",
-                delta_color="normal" if prot >= TARGET_PROTEIN else "inverse",
+                delta_color=get_floor_delta(prot, TARGET_PROTEIN),
             )
 
             # 3. Net Carbs (Ceiling)
@@ -62,176 +82,27 @@ with tab1:
                 "Net Carbs",
                 f"{net_c}g",
                 f"{TARGET_NET_CARBS - net_c} Left",
-                delta_color="normal" if net_c <= TARGET_NET_CARBS else "inverse",
+                delta_color=get_ceiling_delta(net_c, TARGET_NET_CARBS),
             )
 
-            # 4. Total Fat (Ceiling: Max 70g)
+            # 4. Total Fat (Ceiling)
             c4.metric(
                 "Total Fat",
                 f"{fat}g",
                 f"{TARGET_FAT_MAX - fat} Left",
-                delta_color="normal" if fat <= TARGET_FAT_MAX else "inverse",
+                delta_color=get_ceiling_delta(fat, TARGET_FAT_MAX),
             )
 
-            # 5. Fiber (Floor: Min 30g)
+            # 5. Fiber (Floor)
             c5.metric(
                 "Fiber",
                 f"{fib}g",
                 f"{fib - TARGET_FIBER_MIN} vs Target",
-                delta_color="normal" if fib >= TARGET_FIBER_MIN else "inverse",
+                delta_color=get_floor_delta(fib, TARGET_FIBER_MIN),
             )
 
     except Exception as e:
-        st.error(f"Error loading dashboard: {e}")
-
-    st.divider()
-    st.subheader("⚡ Quick Log")
-    try:
-        recent_logs = (
-            supabase.table("daily_logs")
-            .select("food_id, foods(food_name)")
-            .order("log_id", desc=True)
-            .limit(20)
-            .execute()
-        )
-        if recent_logs.data:
-            seen, quick_foods = set(), []
-            for r in recent_logs.data:
-                fid, fname = r["food_id"], r["foods"]["food_name"]
-                if fid not in seen:
-                    quick_foods.append({"id": fid, "name": fname})
-                    seen.add(fid)
-                if len(quick_foods) == 5:
-                    break
-            cols = st.columns(len(quick_foods))
-            for i, food in enumerate(quick_foods):
-                if cols[i].button(f"➕ {food['name']}", key=f"q_{food['id']}"):
-                    supabase.table("daily_logs").insert(
-                        {
-                            "food_id": food["id"],
-                            "servings": 1.0,
-                            "log_date": str(datetime.now().date()),
-                        }
-                    ).execute()
-                    st.rerun()
-    except:
-        st.caption("Log items to see Quick Log.")
-
-    st.divider()
-    col_a, col_b = st.columns(2)
-    with col_a:
-        st.subheader("🍴 Log Existing Food")
-        try:
-            food_query = (
-                supabase.table("foods").select("*").order("food_name").execute()
-            )
-            if food_query.data:
-                food_dict = {f["food_name"]: f for f in food_query.data}
-                selected_name = st.selectbox(
-                    "Search database...", options=list(food_dict.keys()), index=None
-                )
-                if selected_name:
-                    selected_food = food_dict[selected_name]
-                    fat_v, fib_v = (
-                        selected_food.get("fat_g"),
-                        selected_food.get("fiber_g"),
-                    )
-                    if (
-                        fat_v is None
-                        or pd.isna(fat_v)
-                        or fib_v is None
-                        or pd.isna(fib_v)
-                    ):
-                        st.info(f"💡 Updating macros for {selected_name}")
-                        u_fat = st.number_input("Fat (g)", value=0.0)
-                        u_fib = st.number_input("Fiber (g)", value=0.0)
-                        if st.button("Update & Log"):
-                            supabase.table("foods").update(
-                                {"fat_g": u_fat, "fiber_g": u_fib}
-                            ).eq("food_id", selected_food["food_id"]).execute()
-                            supabase.table("daily_logs").insert(
-                                {
-                                    "food_id": selected_food["food_id"],
-                                    "servings": 1.0,
-                                    "log_date": str(datetime.now().date()),
-                                }
-                            ).execute()
-                            st.rerun()
-                    else:
-                        servings = st.number_input(
-                            "Servings", min_value=0.1, value=1.0, step=0.1
-                        )
-                        if st.button("Log Meal"):
-                            supabase.table("daily_logs").insert(
-                                {
-                                    "food_id": selected_food["food_id"],
-                                    "servings": servings,
-                                    "log_date": str(datetime.now().date()),
-                                }
-                            ).execute()
-                            st.rerun()
-        except:
-            pass
-
-    with col_b:
-        st.subheader("🆕 Add New Food")
-        with st.form("new_food_form", clear_on_submit=True):
-            n_name = st.text_input("Food Name")
-            c1, c2, c3 = st.columns(3)
-            n_cal, n_pro, n_carb = (
-                c1.number_input("Cals", 0),
-                c2.number_input("Prot", 0),
-                c3.number_input("Carb", 0),
-            )
-            c4, c5 = st.columns(2)
-            n_fat, n_fib = c4.number_input("Fat", 0), c5.number_input("Fiber", 0)
-            if st.form_submit_button("Save & Log"):
-                if n_name:
-                    res = (
-                        supabase.table("foods")
-                        .insert(
-                            {
-                                "food_name": n_name,
-                                "calories": n_cal,
-                                "protein_g": n_pro,
-                                "carbs_g": n_carb,
-                                "fat_g": n_fat,
-                                "fiber_g": n_fib,
-                            }
-                        )
-                        .execute()
-                    )
-                    if res.data:
-                        supabase.table("daily_logs").insert(
-                            {
-                                "food_id": res.data[0]["food_id"],
-                                "servings": 1.0,
-                                "log_date": str(datetime.now().date()),
-                            }
-                        ).execute()
-                        st.rerun()
-
-    st.divider()
-    st.subheader("📜 Today's Log History")
-    try:
-        history_res = (
-            supabase.table("daily_logs")
-            .select("log_id, servings, foods(food_name, calories)")
-            .eq("log_date", str(datetime.now().date()))
-            .execute()
-        )
-        if history_res.data:
-            for item in history_res.data:
-                hc1, hc2, hc3 = st.columns([3, 1, 1])
-                hc1.write(f"**{item['foods']['food_name']}**")
-                hc2.write(f"{int(item['foods']['calories'] * item['servings'])} cal")
-                if hc3.button("🗑️", key=f"del_{item['log_id']}"):
-                    supabase.table("daily_logs").delete().eq(
-                        "log_id", item["log_id"]
-                    ).execute()
-                    st.rerun()
-    except:
-        pass
+        st.error(f"Dashboard error: {e}")
 
 # --- TAB 2: HEALTH METRICS ---
 with tab2:
