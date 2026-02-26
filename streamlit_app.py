@@ -8,7 +8,7 @@ url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase = create_client(url, key)
 
-st.set_page_config(page_title="Health Dashboard", layout="wide")
+st.set_page_config(page_title="Health Dashboard Pro", layout="wide")
 st.title("💪 My Health Dashboard")
 
 # --- TARGET CONSTANTS ---
@@ -17,7 +17,9 @@ TARGET_PROTEIN = 160
 TARGET_FAT_MAX = 60
 TARGET_NET_CARBS = 60
 TARGET_FIBER_MIN = 30
-TARGET_WEIGHT = 180  # Adjust as needed
+TARGET_WEIGHT = 180
+TARGET_GLUCOSE = 100
+TARGET_BP_SYS = 130
 
 tab1, tab2, tab3 = st.tabs(
     ["🍴 Nutrition Budget", "🩺 Health Metrics", "🏃 Activity Tracker"]
@@ -214,7 +216,6 @@ with tab1:
 
 # --- TAB 2: HEALTH METRICS ---
 with tab2:
-    # 1. Entry Form at Top
     with st.expander("➕ Log New Vitals", expanded=True):
         with st.form("v_form_top", clear_on_submit=True):
             v_date = st.date_input("Date", datetime.now().date())
@@ -241,7 +242,6 @@ with tab2:
 
     st.divider()
 
-    # 2. Status Metrics with Color Coding
     try:
         all_vitals = (
             supabase.table("health_metrics")
@@ -253,30 +253,32 @@ with tab2:
             df_v = pd.DataFrame(all_vitals.data)
             latest_v = all_vitals.data[-1]
 
-            # Emoji Logic for Vitals
-            def get_bp_status(s):
-                if s < 130:
-                    return "🟢 OK"
-                if s < 140:
-                    return "🟡 NEAR"
-                return "🔴 HIGH"
+            # Colors
+            C_RED, C_YELLOW, C_GREEN = "#e74c3c", "#f1c40f", "#2ecc71"
 
-            def get_glu_status(g):
+            def get_bp_info(s):
+                if s < 130:
+                    return "🟢 OK", C_GREEN
+                if s < 140:
+                    return "🟡 NEAR", C_YELLOW
+                return "🔴 HIGH", C_RED
+
+            def get_glu_info(g):
                 if g < 100:
-                    return "🟢 OK"
+                    return "🟢 OK", C_GREEN
                 if g < 126:
-                    return "🟡 NEAR"
-                return "🔴 HIGH"
+                    return "🟡 NEAR", C_YELLOW
+                return "🔴 HIGH", C_RED
+
+            bp_s, bp_c = get_bp_info(latest_v["blood_pressure_systolic"])
+            gl_s, gl_c = get_glu_info(latest_v["blood_glucose"])
 
             m1, m2, m3 = st.columns(3)
             m1.metric(
-                f"BP {get_bp_status(latest_v['blood_pressure_systolic'])}",
+                f"BP {bp_s}",
                 f"{int(latest_v['blood_pressure_systolic'])}/{int(latest_v['blood_pressure_diastolic'])}",
             )
-            m2.metric(
-                f"Glucose {get_glu_status(latest_v['blood_glucose'])}",
-                f"{latest_v['blood_glucose']} mg/dL",
-            )
+            m2.metric(f"Glucose {gl_s}", f"{latest_v['blood_glucose']} mg/dL")
             m3.metric(
                 f"Weight",
                 f"{latest_v['weight_lb']} lbs",
@@ -285,21 +287,46 @@ with tab2:
             )
 
             st.divider()
-            st.subheader("📈 Health Trends")
-            t1, t2 = st.columns(2)
-            t1.write("**Weight Trend**")
-            t1.line_chart(df_v, x="date", y="weight_lb")
-            t2.write("**Glucose Trend**")
-            t2.line_chart(df_v, x="date", y="blood_glucose")
+            st.subheader("📈 Health Trends (with Target Lines)")
 
-            st.write("**Blood Pressure Trend (Sys/Dia)**")
+            # Creating DataFrames for charts with baseline targets
+            df_v["Target Weight"] = TARGET_WEIGHT
+            df_v["Target Glucose"] = TARGET_GLUCOSE
+            df_v["Target Systolic"] = TARGET_BP_SYS
+
+            t1, t2 = st.columns(2)
+            with t1:
+                st.write("**Weight vs Goal**")
+                st.line_chart(
+                    df_v,
+                    x="date",
+                    y=["weight_lb", "Target Weight"],
+                    color=["#3498db", "#bdc3c7"],
+                )
+
+            with t2:
+                st.write(f"**Glucose vs Goal ({gl_s})**")
+                st.line_chart(
+                    df_v,
+                    x="date",
+                    y=["blood_glucose", "Target Glucose"],
+                    color=[gl_c, "#bdc3c7"],
+                )
+
+            st.write(f"**Blood Pressure Trend ({bp_s})**")
             st.line_chart(
                 df_v,
                 x="date",
-                y=["blood_pressure_systolic", "blood_pressure_diastolic"],
+                y=[
+                    "blood_pressure_systolic",
+                    "blood_pressure_diastolic",
+                    "Target Systolic",
+                ],
+                color=[bp_c, "#95a5a6", "#bdc3c7"],
             )
+
     except:
-        st.info("No data yet. Log your first vitals above!")
+        st.info("No data logged yet.")
 
 # --- TAB 3: ACTIVITY TRACKER ---
 with tab3:
