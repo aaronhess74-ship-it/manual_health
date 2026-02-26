@@ -21,7 +21,9 @@ COLOR_NORMAL = "#2ecc71"
 COLOR_WARNING = "#f1c40f"
 COLOR_DANGER = "#e74c3c"
 
-tab1, tab2 = st.tabs(["🍴 Nutrition Budget", "🩺 Health Metrics"])
+tab1, tab2, tab3 = st.tabs(
+    ["🍴 Nutrition Budget", "🩺 Health Metrics", "🏃 Activity Tracker"]
+)
 
 # --- TAB 1: NUTRITION BUDGET ---
 with tab1:
@@ -46,12 +48,10 @@ with tab1:
                 f"{latest['total_carbs']}g",
                 f"{TARGET_CARBS - latest['total_carbs']}g Left",
             )
-    except Exception as e:
-        st.info("Log a meal below to see today's status.")
+    except:
+        pass
 
     st.divider()
-
-    # Quick Log Logic
     st.subheader("⚡ Quick Log")
     try:
         recent_logs = (
@@ -62,8 +62,7 @@ with tab1:
             .execute()
         )
         if recent_logs.data:
-            seen = set()
-            quick_foods = []
+            seen, quick_foods = set(), []
             for r in recent_logs.data:
                 fid, fname = r["food_id"], r["foods"]["food_name"]
                 if fid not in seen:
@@ -71,7 +70,6 @@ with tab1:
                     seen.add(fid)
                 if len(quick_foods) == 5:
                     break
-
             cols = st.columns(len(quick_foods))
             for i, food in enumerate(quick_foods):
                 if cols[i].button(f"➕ {food['name']}", key=f"q_{food['id']}"):
@@ -83,8 +81,8 @@ with tab1:
                         }
                     ).execute()
                     st.rerun()
-    except Exception as e:
-        st.caption("Log items manually to see Quick Log buttons.")
+    except:
+        st.caption("Log items to see Quick Log buttons.")
 
     st.divider()
     col_a, col_b = st.columns(2)
@@ -114,9 +112,8 @@ with tab1:
                         }
                     ).execute()
                     st.rerun()
-        except Exception as e:
-            st.error("Error loading search.")
-
+        except:
+            pass
     with col_b:
         st.subheader("🆕 Add New Food")
         with st.form("new_food_form", clear_on_submit=True):
@@ -151,28 +148,6 @@ with tab1:
                         ).execute()
                         st.rerun()
 
-    st.divider()
-    st.subheader("📜 Today's Log History")
-    try:
-        history_res = (
-            supabase.table("daily_logs")
-            .select("log_id, servings, foods(food_name, calories)")
-            .eq("log_date", str(datetime.now().date()))
-            .execute()
-        )
-        if history_res.data:
-            for item in history_res.data:
-                c1, c2, c3 = st.columns([3, 1, 1])
-                c1.write(f"**{item['foods']['food_name']}**")
-                c2.write(f"{int(item['foods']['calories'] * item['servings'])} cal")
-                if c3.button("🗑️", key=f"del_{item['log_id']}"):
-                    supabase.table("daily_logs").delete().eq(
-                        "log_id", item["log_id"]
-                    ).execute()
-                    st.rerun()
-    except Exception as e:
-        pass
-
 # --- TAB 2: HEALTH METRICS ---
 with tab2:
     bp_line_color, glu_line_color, wgt_line_color = (
@@ -180,8 +155,6 @@ with tab2:
         COLOR_NORMAL,
         COLOR_NORMAL,
     )
-
-    # 1. Latest Status & Warnings
     try:
         last_res = (
             supabase.table("health_metrics")
@@ -199,35 +172,24 @@ with tab2:
                 int(v["blood_glucose"]),
                 float(v["weight_lb"]),
             )
-
-            # BP Status Logic
             if s < 120 and d < 80:
                 bp_s, bp_line_color = "🟢 Normal", COLOR_NORMAL
             elif 120 <= s < 130 and d < 80:
                 bp_s, bp_line_color = "🟡 Elevated", COLOR_WARNING
             else:
                 bp_s, bp_line_color = "🔴 Hypertension", COLOR_DANGER
-
-            # Glucose Status Logic
             if g < 100:
                 g_s, glu_line_color = "🟢 Normal", COLOR_NORMAL
             elif 100 <= g < 126:
                 g_s, glu_line_color = "🟡 Pre-diabetes", COLOR_WARNING
             else:
                 g_s, glu_line_color = "🔴 High", COLOR_DANGER
-
-            # Weight Status Logic
             if 155 <= w <= 179:
                 w_s, wgt_line_color = "🟢 Goal Range", COLOR_NORMAL
             elif 180 <= w <= 200:
                 w_s, wgt_line_color = "🟡 Warning Range", COLOR_WARNING
             else:
                 w_s, wgt_line_color = "🔴 Above Range", COLOR_DANGER
-
-            if bp_line_color == COLOR_DANGER or glu_line_color == COLOR_DANGER:
-                st.warning(
-                    "⚠️ **Attention:** Vitals are currently in the High zone. Consider resting."
-                )
 
             st.subheader("🏷️ Latest Vitals Status")
             m1, m2, m3 = st.columns(3)
@@ -237,34 +199,14 @@ with tab2:
             m2.markdown(f"**Status:** {g_s}")
             m3.metric("Weight", f"{w} lbs")
             m3.markdown(f"**Status:** {w_s}")
-    except Exception as e:
-        st.info("Log your first vitals to see status summary.")
+    except:
+        pass
 
-    # 2. Weekly Summary
     st.divider()
-    with st.expander("📊 Weekly Insights Summary"):
-        try:
-            seven_days_ago = (datetime.now() - timedelta(days=7)).date()
-            week_data = (
-                supabase.table("health_metrics")
-                .select("*")
-                .gte("date", str(seven_days_ago))
-                .execute()
-            )
-            if week_data.data:
-                w_df = pd.DataFrame(week_data.data)
-                st.write(f"* Avg Glucose: **{w_df['blood_glucose'].mean():.1f} mg/dL**")
-                st.write(f"* Avg Weight: **{w_df['weight_lb'].mean():.1f} lbs**")
-                st.write(f"* Total Entries: **{len(w_df)}**")
-        except Exception as e:
-            st.write("No weekly data yet.")
-
-    # 3. Log Form
-    st.divider()
-    with st.expander("🩺 Log New Vitals & Weight"):
-        with st.form("vitals_form", clear_on_submit=True):
+    with st.expander("🩺 Log New Vitals"):
+        with st.form("v_form", clear_on_submit=True):
             col_d, col_t = st.columns(2)
-            m_date, m_time = col_d.date_input("Date"), col_t.time_input("Time")
+            d_val, t_val = col_d.date_input("Date"), col_t.time_input("Time")
             c1, c2, c3 = st.columns(3)
             sys, dia = (
                 c1.number_input("Systolic", 120),
@@ -274,11 +216,11 @@ with tab2:
                 c3.number_input("Weight", value=180.0),
                 st.number_input("Glucose", value=100),
             )
-            if st.form_submit_button("Save Metrics"):
+            if st.form_submit_button("Save"):
                 supabase.table("health_metrics").insert(
                     {
-                        "date": str(m_date),
-                        "time": str(m_time),
+                        "date": str(d_val),
+                        "time": str(t_val),
                         "blood_pressure_systolic": sys,
                         "blood_pressure_diastolic": dia,
                         "blood_glucose": glu_v,
@@ -287,10 +229,11 @@ with tab2:
                 ).execute()
                 st.rerun()
 
-    # 4. Trends
     st.divider()
     st.subheader("📈 Health Trends")
-    time_view = st.radio("Range:", ["7 Days", "30 Days", "Year"], horizontal=True)
+    time_view = st.radio(
+        "Range:", ["7 Days", "30 Days", "Year"], horizontal=True, key="health_range"
+    )
     cutoff = datetime.now().date() - timedelta(
         days=7 if time_view == "7 Days" else (30 if time_view == "30 Days" else 365)
     )
@@ -300,34 +243,119 @@ with tab2:
             .select("*")
             .gte("date", cutoff.isoformat())
             .order("date", desc=False)
-            .order("time", desc=False)
             .execute()
         )
         if res.data:
-            df = pd.DataFrame(res.data)
-            for m in [
-                "blood_pressure_systolic",
-                "blood_pressure_diastolic",
-                "blood_glucose",
-                "weight_lb",
-            ]:
-                df[m] = pd.to_numeric(df[m], errors="coerce")
-            st.write("#### Blood Pressure")
+            df_h = pd.DataFrame(res.data)
             st.line_chart(
-                df,
+                df_h,
                 x="date",
                 y=["blood_pressure_systolic", "blood_pressure_diastolic"],
                 color=[bp_line_color, "#5dade2"],
             )
-            st.write("#### Weight (lbs)")
-            st.line_chart(
-                df[df["weight_lb"] > 0], x="date", y="weight_lb", color=wgt_line_color
+            st.line_chart(df_h, x="date", y="weight_lb", color=wgt_line_color)
+            st.line_chart(df_h, x="date", y="blood_glucose", color=glu_line_color)
+    except:
+        pass
+
+# --- TAB 3: ACTIVITY TRACKER ---
+with tab3:
+    st.subheader("🏃 Log Activity")
+    with st.form("activity_form", clear_on_submit=True):
+        col1, col2 = st.columns(2)
+        ex_date = col1.date_input("Date", value=datetime.now().date())
+        ex_name = col2.text_input("Exercise Name (e.g. Running, Pushups, Planks)")
+
+        # Category selection to determine which fields to show
+        category = st.selectbox(
+            "Type",
+            [
+                "Strength (Sets/Reps)",
+                "Cardio (Distance/Duration)",
+                "Static (Duration/Sets/Reps)",
+            ],
+        )
+
+        c1, c2, c3 = st.columns(3)
+        duration = c1.number_input("Duration (minutes)", min_value=0, value=0)
+
+        # Logic for fields based on category
+        sets = reps = distance = 0
+        if "Strength" in category or "Static" in category:
+            sets = c2.number_input("Sets", min_value=0, value=0)
+            reps = c3.number_input("Reps", min_value=0, value=0)
+        if "Cardio" in category:
+            distance = c2.number_input("Distance (miles)", min_value=0.0, step=0.1)
+
+        if st.form_submit_button("Save Activity"):
+            if ex_name:
+                act_data = {
+                    "date": str(ex_date),
+                    "exercise_name": ex_name,
+                    "duration_min": duration,
+                    "sets": sets,
+                    "reps": reps,
+                    "distance_miles": distance,
+                    "type": category,
+                }
+                supabase.table("activity_logs").insert(act_data).execute()
+                st.rerun()
+
+    st.divider()
+    st.subheader("📈 Activity Trends (Duration)")
+
+    try:
+        # Fetching activity data for trends
+        act_res = (
+            supabase.table("activity_logs")
+            .select("*")
+            .order("date", desc=False)
+            .execute()
+        )
+        if act_res.data:
+            df_a = pd.DataFrame(act_res.data)
+
+            # Determine color of most recent session
+            last_duration = df_a["duration_min"].iloc[-1]
+            if last_duration >= 30:
+                act_color = COLOR_NORMAL
+            elif 11 <= last_duration <= 29:
+                act_color = COLOR_WARNING
+            else:
+                act_color = COLOR_DANGER
+
+            # Status Indicator
+            st.markdown(
+                f"**Current Session Status:** {'🟢 Great (30m+)' if last_duration >= 30 else '🟡 Moderate (11-29m)' if last_duration >= 11 else '🔴 Short (0-10m)'}"
             )
-            st.write("#### Blood Glucose")
-            st.line_chart(df, x="date", y="blood_glucose", color=glu_line_color)
-            csv = df.to_csv(index=False).encode("utf-8")
+
+            st.line_chart(df_a, x="date", y="duration_min", color=act_color)
+
+            st.divider()
+            st.subheader("📜 Activity History")
+            st.dataframe(
+                df_a[
+                    [
+                        "date",
+                        "exercise_name",
+                        "type",
+                        "duration_min",
+                        "sets",
+                        "reps",
+                        "distance_miles",
+                    ]
+                ]
+            )
+
+            # Export Button
+            csv_act = df_a.to_csv(index=False).encode("utf-8")
             st.download_button(
-                "📥 Download Data", data=csv, file_name="health_export.csv"
+                label="📥 Download Workout Log (CSV)",
+                data=csv_act,
+                file_name=f"workout_log_{datetime.now().date()}.csv",
+                mime="text/csv",
             )
+        else:
+            st.info("No activities logged yet.")
     except Exception as e:
-        st.error(f"Chart Error: {e}")
+        st.error(f"Error loading activity: {e}")
