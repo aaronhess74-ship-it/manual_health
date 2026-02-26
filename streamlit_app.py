@@ -100,24 +100,13 @@ with tab1:
     st.divider()
     st.subheader("⚡ Quick Log")
     try:
-        recent = (
-        # Fixed Quick Log: Pulling from the logs you've actually made
         recent_res = (
             supabase.table("daily_logs")
             .select("food_id, foods(food_name)")
             .order("log_id", desc=True)
-            .limit(20)
             .limit(30)
             .execute()
         )
-        if recent.data:
-            seen, quick_foods = set(), []
-            for r in recent.data:
-                fid, fname = r["food_id"], r["foods"]["food_name"]
-                if fid not in seen:
-                    quick_foods.append({"id": fid, "name": fname})
-                    seen.add(fid)
-                if len(quick_foods) == 5:
         if recent_res.data:
             seen = set()
             quick_foods = []
@@ -129,10 +118,6 @@ with tab1:
                     seen.add(r["food_id"])
                 if len(quick_foods) >= 5:
                     break
-            cols = st.columns(len(quick_foods))
-            for i, f in enumerate(quick_foods):
-                if cols[i].button(f"➕ {f['name']}", key=f"q_{f['id']}"):
-
             if quick_foods:
                 cols = st.columns(len(quick_foods))
                 for i, f in enumerate(quick_foods):
