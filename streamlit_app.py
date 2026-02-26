@@ -253,9 +253,15 @@ with tab2:
             df_v = pd.DataFrame(all_vitals.data)
             latest_v = all_vitals.data[-1]
 
-            # Colors
-            C_RED, C_YELLOW, C_GREEN = "#e74c3c", "#f1c40f", "#2ecc71"
+            # Standard Hex Colors
+            C_RED, C_YELLOW, C_GREEN, C_GRAY = (
+                "#e74c3c",
+                "#f1c40f",
+                "#2ecc71",
+                "#bdc3c7",
+            )
 
+            # Logic Functions
             def get_bp_info(s):
                 if s < 130:
                     return "🟢 OK", C_GREEN
@@ -270,9 +276,18 @@ with tab2:
                     return "🟡 NEAR", C_YELLOW
                 return "🔴 HIGH", C_RED
 
+            def get_wt_info(w):
+                if w < 180:
+                    return "🟢 OK", C_GREEN
+                if w < 220:
+                    return "🟡 HIGH", C_YELLOW
+                return "🔴 DANGER", C_RED
+
             bp_s, bp_c = get_bp_info(latest_v["blood_pressure_systolic"])
             gl_s, gl_c = get_glu_info(latest_v["blood_glucose"])
+            wt_s, wt_c = get_wt_info(latest_v["weight_lb"])
 
+            # Top Metrics
             m1, m2, m3 = st.columns(3)
             m1.metric(
                 f"BP {bp_s}",
@@ -280,40 +295,43 @@ with tab2:
             )
             m2.metric(f"Glucose {gl_s}", f"{latest_v['blood_glucose']} mg/dL")
             m3.metric(
-                f"Weight",
+                f"Weight {wt_s}",
                 f"{latest_v['weight_lb']} lbs",
                 f"{round(latest_v['weight_lb'] - TARGET_WEIGHT, 1)} vs Target",
                 delta_color="off",
             )
 
             st.divider()
-            st.subheader("📈 Health Trends (with Target Lines)")
+            st.subheader("📈 Health Trends")
 
-            # Creating DataFrames for charts with baseline targets
+            # Prepare Target Lines in DataFrame
             df_v["Target Weight"] = TARGET_WEIGHT
             df_v["Target Glucose"] = TARGET_GLUCOSE
             df_v["Target Systolic"] = TARGET_BP_SYS
 
             t1, t2 = st.columns(2)
             with t1:
-                st.write("**Weight vs Goal**")
+                st.write(f"**Weight vs Goal ({wt_s})**")
+                # Line 1: Weight (Status Color), Line 2: Target (Gray)
                 st.line_chart(
                     df_v,
                     x="date",
                     y=["weight_lb", "Target Weight"],
-                    color=["#3498db", "#bdc3c7"],
+                    color=[wt_c, C_GRAY],
                 )
 
             with t2:
                 st.write(f"**Glucose vs Goal ({gl_s})**")
+                # Line 1: Glucose (Status Color), Line 2: Target (Gray)
                 st.line_chart(
                     df_v,
                     x="date",
                     y=["blood_glucose", "Target Glucose"],
-                    color=[gl_c, "#bdc3c7"],
+                    color=[gl_c, C_GRAY],
                 )
 
             st.write(f"**Blood Pressure Trend ({bp_s})**")
+            # Line 1: Systolic (Status Color), Line 2: Diastolic (Dim Gray), Line 3: Target (Light Gray)
             st.line_chart(
                 df_v,
                 x="date",
@@ -322,12 +340,11 @@ with tab2:
                     "blood_pressure_diastolic",
                     "Target Systolic",
                 ],
-                color=[bp_c, "#95a5a6", "#bdc3c7"],
+                color=[bp_c, "#95a5a6", C_GRAY],
             )
 
-    except:
-        st.info("No data logged yet.")
-
+    except Exception as e:
+        st.info("Log some vitals to see trends!")
 # --- TAB 3: ACTIVITY TRACKER ---
 with tab3:
     cat = st.radio("Type:", ["Strength", "Static", "Cardio"], horizontal=True)
