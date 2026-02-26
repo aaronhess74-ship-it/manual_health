@@ -336,48 +336,42 @@ with tab2:
     except:
         st.info("No vitals data found.")
 
-# --- TAB 3: ACTIVITY (SWAP LOGIC FIXED) ---
+# --- TAB 3: ACTIVITY (UI SWAP FIX) ---
 with tab3:
-    # We move the radio OUTSIDE the form if it is sticking,
-    # but let's try the clean Form approach one more time with explicit logic.
+    st.subheader("🏃 Log Activity")
+
+    # 1. Radio moves OUTSIDE the form to trigger the UI refresh
+    act_type = st.radio(
+        "Select Activity Type",
+        ["Strength", "Cardio", "Endurance"],
+        horizontal=True,
+        key="activity_selector",
+    )
+
+    # 2. The Form begins AFTER the radio button
     with st.form("act_form", clear_on_submit=True):
         a_date = st.date_input("Date", datetime.now().date())
         name = st.text_input("Exercise Name")
 
-        act_type = st.radio(
-            "Activity Type", ["Strength", "Cardio", "Endurance"], horizontal=True
-        )
-
-        st.write("---")  # Visual separator
-
-        # We define ALL possible variables first to prevent "Missing Variable" errors
-        dur, dist, sets, reps, weight_ex = 0.0, 0.0, 0, 0, 0
-
-        # Use placeholders to force Streamlit to refresh the specific columns
         c1, c2, c3 = st.columns(3)
 
+        # Initialize defaults
+        dur, dist, sets, reps, weight_ex = 0.0, 0.0, 0, 0, 0
+
+        # UI now swaps instantly when you click the radio buttons above
         if act_type == "Strength":
-            sets = c1.number_input("Sets", min_value=0, value=3, key="s_sets")
-            reps = c2.number_input("Reps", min_value=0, value=10, key="s_reps")
-            weight_ex = c3.number_input(
-                "Weight (lbs)", min_value=0, value=0, key="s_weight"
-            )
+            sets = c1.number_input("Sets", min_value=0, value=3)
+            reps = c2.number_input("Reps", min_value=0, value=10)
+            weight_ex = c3.number_input("Weight (lbs)", min_value=0, value=0)
 
         elif act_type == "Cardio":
-            dur = c1.number_input(
-                "Duration (mins)", min_value=0.0, value=30.0, key="c_dur"
-            )
-            dist = c2.number_input(
-                "Distance (miles)", min_value=0.0, value=0.0, key="c_dist"
-            )
-            # c3 remains empty for Cardio
+            dur = c1.number_input("Duration (mins)", min_value=0.0, value=30.0)
+            dist = c2.number_input("Distance (miles)", min_value=0.0, value=0.0)
 
         elif act_type == "Endurance":
-            dur = c1.number_input(
-                "Duration (mins)", min_value=0.0, value=30.0, key="e_dur"
-            )
-            sets = c2.number_input("Sets", min_value=0, value=0, key="e_sets")
-            reps = c3.number_input("Reps", min_value=0, value=0, key="e_reps")
+            dur = c1.number_input("Duration (mins)", min_value=0.0, value=30.0)
+            sets = c2.number_input("Sets", min_value=0, value=0)
+            reps = c3.number_input("Reps", min_value=0, value=0)
 
         if st.form_submit_button("Log Activity"):
             if name:
@@ -395,10 +389,36 @@ with tab3:
                 ).execute()
                 st.rerun()
             else:
-                st.error("Please enter an exercise name.")
+                st.warning("Please enter an exercise name.")
 
     st.divider()
-    # (Rest of History Table remains the same)
+    # (Rest of history table logic follows below...)
+    try:
+        a_res = (
+            supabase.table("activity_logs")
+            .select("*")
+            .order("date", desc=False)
+            .execute()
+        )
+        if a_res.data:
+            df_a = pd.DataFrame(a_res.data)
+            st.subheader("📜 Activity History")
+            st.dataframe(
+                df_a.sort_values(by="date", ascending=False),
+                use_container_width=True,
+                column_order=[
+                    "date",
+                    "exercise_name",
+                    "activity_type",
+                    "sets",
+                    "reps",
+                    "weight_lbs",
+                    "duration_min",
+                    "distance_miles",
+                ],
+            )
+    except:
+        pass
 
 # --- TAB 4: REPORTS & EXPORTS (FULL RESTORED) ---
 with tab4:
