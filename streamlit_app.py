@@ -1,18 +1,17 @@
 import streamlit as st
 from supabase import create_client
-from datetime import datetime, timedelta
+from datetime import datetime
 import pandas as pd
-import numpy as np
 
 # 1. Setup Connection
 url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase = create_client(url, key)
 
-st.set_page_config(page_title="Health & Fitness Pro", layout="wide")
+st.set_page_config(page_title="Health Dashboard", layout="wide")
 st.title("💪 My Health Dashboard")
 
-# --- ACTUAL TARGET CONSTANTS ---
+# --- TARGET CONSTANTS ---
 TARGET_CALORIES = 1800
 TARGET_PROTEIN = 160
 TARGET_FAT_MAX = 60
@@ -38,51 +37,38 @@ with tab1:
             fat = int(latest.get("total_fat", 0))
             fib = int(latest.get("total_fiber", 0))
 
-            # Logic Helpers
-            def get_ceiling_delta(curr, target):
+            # --- CEILING LOGIC (Cals, Net Carbs, Fat) ---
+            def get_ceil_status(curr, target):
+                diff = target - curr
                 if curr > target:
-                    return "inverse"  # Red
+                    return diff, "inverse"  # Red
                 if curr >= (target * 0.90):
-                    return "off"  # Yellow
-                return "normal"  # Green
+                    return diff, "off"  # Yellow/Grey
+                return diff, "normal"  # Green
 
-            def get_floor_delta(curr, target):
+            # --- FLOOR LOGIC (Protein, Fiber) ---
+            def get_floor_status(curr, target):
+                diff = curr - target
                 if curr >= target:
-                    return "normal"  # Green
+                    return diff, "normal"  # Green
                 if curr >= (target * 0.90):
-                    return "off"  # Yellow
-                return "inverse"  # Red
+                    return diff, "off"  # Yellow/Grey
+                return diff, "inverse"  # Red
 
-            c1.metric(
-                "Calories",
-                f"{cals}",
-                f"{TARGET_CALORIES - cals} Left",
-                delta_color=get_ceiling_delta(cals, TARGET_CALORIES),
-            )
-            c2.metric(
-                "Protein",
-                f"{prot}g",
-                f"{prot - TARGET_PROTEIN} vs Target",
-                delta_color=get_floor_delta(prot, TARGET_PROTEIN),
-            )
-            c3.metric(
-                "Net Carbs",
-                f"{net_c}g",
-                f"{TARGET_NET_CARBS - net_c} Left",
-                delta_color=get_ceiling_delta(net_c, TARGET_NET_CARBS),
-            )
-            c4.metric(
-                "Total Fat",
-                f"{fat}g",
-                f"{TARGET_FAT_MAX - fat} Left",
-                delta_color=get_ceiling_delta(fat, TARGET_FAT_MAX),
-            )
-            c5.metric(
-                "Fiber",
-                f"{fib}g",
-                f"{fib - TARGET_FIBER_MIN} vs Target",
-                delta_color=get_floor_delta(fib, TARGET_FIBER_MIN),
-            )
+            d_cal, s_cal = get_ceil_status(cals, TARGET_CALORIES)
+            c1.metric("Calories", f"{cals}", f"{d_cal} Left", delta_color=s_cal)
+
+            d_prot, s_prot = get_floor_status(prot, TARGET_PROTEIN)
+            c2.metric("Protein", f"{prot}g", f"{d_prot} vs Target", delta_color=s_prot)
+
+            d_net, s_net = get_ceil_status(net_c, TARGET_NET_CARBS)
+            c3.metric("Net Carbs", f"{net_c}g", f"{d_net} Left", delta_color=s_net)
+
+            d_fat, s_fat = get_ceil_status(fat, TARGET_FAT_MAX)
+            c4.metric("Total Fat", f"{fat}g", f"{d_fat} Left", delta_color=s_fat)
+
+            d_fib, s_fib = get_floor_status(fib, TARGET_FIBER_MIN)
+            c5.metric("Fiber", f"{fib}g", f"{d_fib} vs Target", delta_color=s_fib)
     except:
         pass
 
@@ -129,6 +115,7 @@ with tab1:
             sel = st.selectbox("Search...", options=list(f_dict.keys()), index=None)
             if sel:
                 food = f_dict[sel]
+                # Check for missing macros
                 if food.get("fat_g") is None or pd.isna(food.get("fat_g")):
                     st.info(f"Adding missing macros for {sel}")
                     u_fat = st.number_input("Fat", 0.0)
@@ -146,7 +133,7 @@ with tab1:
                         ).execute()
                         st.rerun()
                 else:
-                    srv = st.number_input("Servings", 0.1, 1.0, step=0.1)
+                    srv = st.number_input("Servings", 0.1, 10.0, value=1.0, step=0.1)
                     if st.button("Log Meal"):
                         supabase.table("daily_logs").insert(
                             {
@@ -169,30 +156,31 @@ with tab1:
             )
             c_f, c_fi = st.columns(2)
             nf, nfi = c_f.number_input("Fat", 0), c_fi.number_input("Fib", 0)
-            if st.form_submit_button("Save"):
-                res = (
-                    supabase.table("foods")
-                    .insert(
-                        {
-                            "food_name": n_name,
-                            "calories": nc,
-                            "protein_g": np,
-                            "carbs_g": ncb,
-                            "fat_g": nf,
-                            "fiber_g": nfi,
-                        }
+            if st.form_submit_button("Save & Log"):
+                if n_name:
+                    res = (
+                        supabase.table("foods")
+                        .insert(
+                            {
+                                "food_name": n_name,
+                                "calories": nc,
+                                "protein_g": np,
+                                "carbs_g": ncb,
+                                "fat_g": nf,
+                                "fiber_g": nfi,
+                            }
+                        )
+                        .execute()
                     )
-                    .execute()
-                )
-                if res.data:
-                    supabase.table("daily_logs").insert(
-                        {
-                            "food_id": res.data[0]["food_id"],
-                            "servings": 1.0,
-                            "log_date": str(datetime.now().date()),
-                        }
-                    ).execute()
-                    st.rerun()
+                    if res.data:
+                        supabase.table("daily_logs").insert(
+                            {
+                                "food_id": res.data[0]["food_id"],
+                                "servings": 1.0,
+                                "log_date": str(datetime.now().date()),
+                            }
+                        ).execute()
+                        st.rerun()
 
     st.subheader("📜 Today's History")
     h_res = (
@@ -216,7 +204,11 @@ with tab1:
 with tab2:
     try:
         last_v = (
-            supabase.table("health_metrics").order("date", desc=True).limit(1).execute()
+            supabase.table("health_metrics")
+            .select("*")
+            .order("date", desc=True)
+            .limit(1)
+            .execute()
         )
         if last_v.data:
             v = last_v.data[0]
@@ -286,7 +278,7 @@ with tab3:
             ),
             axis=1,
         )
-        st.subheader("Trends")
+        st.subheader("Duration Trends")
         st.line_chart(df_a, x="date", y="duration_min")
         df_c = df_a[df_a["type"] == "Cardio"].dropna(subset=["pace"])
         if not df_c.empty:
