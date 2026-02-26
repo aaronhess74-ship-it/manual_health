@@ -336,9 +336,11 @@ with tab2:
     except:
         st.info("No vitals data found.")
 
-# --- TAB 3: ACTIVITY (FIXED CONDITIONAL LOGIC) ---
+# --- TAB 3: ACTIVITY (SWAP LOGIC FIXED) ---
 with tab3:
-    with st.form("act_form"):
+    # We move the radio OUTSIDE the form if it is sticking,
+    # but let's try the clean Form approach one more time with explicit logic.
+    with st.form("act_form", clear_on_submit=True):
         a_date = st.date_input("Date", datetime.now().date())
         name = st.text_input("Exercise Name")
 
@@ -346,53 +348,57 @@ with tab3:
             "Activity Type", ["Strength", "Cardio", "Endurance"], horizontal=True
         )
 
-        c1, c2, c3 = st.columns(3)
+        st.write("---")  # Visual separator
 
-        # Initialize variables to 0
+        # We define ALL possible variables first to prevent "Missing Variable" errors
         dur, dist, sets, reps, weight_ex = 0.0, 0.0, 0, 0, 0
 
+        # Use placeholders to force Streamlit to refresh the specific columns
+        c1, c2, c3 = st.columns(3)
+
         if act_type == "Strength":
-            # Strength: sets, reps, weight
-            sets = c1.number_input("Sets", min_value=0, value=3, key="str_sets")
-            reps = c2.number_input("Reps", min_value=0, value=10, key="str_reps")
+            sets = c1.number_input("Sets", min_value=0, value=3, key="s_sets")
+            reps = c2.number_input("Reps", min_value=0, value=10, key="s_reps")
             weight_ex = c3.number_input(
-                "Weight (lbs)", min_value=0, value=0, key="str_wt"
+                "Weight (lbs)", min_value=0, value=0, key="s_weight"
             )
 
         elif act_type == "Cardio":
-            # Cardio: duration and distance
             dur = c1.number_input(
-                "Duration (mins)", min_value=0.0, value=30.0, key="card_dur"
+                "Duration (mins)", min_value=0.0, value=30.0, key="c_dur"
             )
             dist = c2.number_input(
-                "Distance (miles)", min_value=0.0, value=0.0, key="card_dist"
+                "Distance (miles)", min_value=0.0, value=0.0, key="c_dist"
             )
+            # c3 remains empty for Cardio
 
         elif act_type == "Endurance":
-            # Endurance: duration, sets, reps
             dur = c1.number_input(
-                "Duration (mins)", min_value=0.0, value=30.0, key="end_dur"
+                "Duration (mins)", min_value=0.0, value=30.0, key="e_dur"
             )
-            sets = c2.number_input("Sets", min_value=0, value=0, key="end_sets")
-            reps = c3.number_input("Reps", min_value=0, value=0, key="end_reps")
+            sets = c2.number_input("Sets", min_value=0, value=0, key="e_sets")
+            reps = c3.number_input("Reps", min_value=0, value=0, key="e_reps")
 
         if st.form_submit_button("Log Activity"):
-            supabase.table("activity_logs").insert(
-                {
-                    "date": str(a_date),
-                    "exercise_name": name,
-                    "activity_type": act_type,
-                    "duration_min": dur,
-                    "distance_miles": dist,
-                    "sets": sets,
-                    "reps": reps,
-                    "weight_lbs": weight_ex,
-                }
-            ).execute()
-            st.rerun()
+            if name:
+                supabase.table("activity_logs").insert(
+                    {
+                        "date": str(a_date),
+                        "exercise_name": name,
+                        "activity_type": act_type,
+                        "duration_min": dur,
+                        "distance_miles": dist,
+                        "sets": sets,
+                        "reps": reps,
+                        "weight_lbs": weight_ex,
+                    }
+                ).execute()
+                st.rerun()
+            else:
+                st.error("Please enter an exercise name.")
 
     st.divider()
-    # ... (Rest of History Table logic remains the same)
+    # (Rest of History Table remains the same)
 
 # --- TAB 4: REPORTS & EXPORTS (FULL RESTORED) ---
 with tab4:
