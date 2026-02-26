@@ -449,8 +449,14 @@ with tab4:
             if report_type == "Health Vitals"
             else "activity_logs"
         )
-    # --- ADD THIS AT THE VERY BOTTOM ---
-st.divider()
+# --- TAB 4: REPORTS & EXPORTS ---
+with tab4:
+    st.subheader("📊 Performance & Data Central")
+    
+    # ... (Your existing reports code is here) ...
+
+    # EVERYTHING BELOW MUST BE ALIGNED WITH THE SUBHEADER ABOVE
+    st.divider()
     st.subheader("📥 Universal Food Importer")
     st.write("Supports Kaggle (Daily Food) and USDA (Foundation Foods) formats.")
 
@@ -460,50 +466,7 @@ st.divider()
     if uploaded_file is not None:
         try:
             df_raw = pd.read_csv(uploaded_file)
-            df_raw.columns = df_raw.columns.str.strip() # Clean headers
-            
-            if import_type == "Daily Food & Nutrition (Kaggle)":
-                # Mapping for https://www.kaggle.com/datasets/adilshamim8/daily-food-and-nutrition-dataset
-                mapping = {
-                    'Food_Item': 'food_name',
-                    'Calories (kcal)': 'calories',
-                    'Protein (g)': 'protein_g',
-                    'Carbohydrates (g)': 'carbs_g',
-                    'Fat (g)': 'fat_g',
-                    'Fiber (g)': 'fiber_g'
-                }
-            else:
-                # Mapping for USDA Foundation Foods (standard CSV export)
-                # Note: USDA often uses 'description' for the name
-                mapping = {
-                    'description': 'food_name',
-                    'Energy': 'calories',
-                    'Protein': 'protein_g',
-                    'Carbohydrate, by difference': 'carbs_g',
-                    'Total lipid (fat)': 'fat_g',
-                    'Fiber, total dietary': 'fiber_g'
-                }
-
-            # Filter only columns that exist in the uploaded file
-            existing_cols = [col for col in mapping.keys() if col in df_raw.columns]
-            df_mapped = df_raw[existing_cols].rename(columns=mapping)
-            
-            # Fill any missing required columns with 0.0
-            for col in ['calories', 'protein_g', 'carbs_g', 'fat_g', 'fiber_g']:
-                if col not in df_mapped.columns:
-                    df_mapped[col] = 0.0
-            
-            st.write(f"Previewing {len(df_mapped)} items:")
-            st.dataframe(df_mapped.head())
-            
-            if st.button("🚀 Confirm Universal Import"):
-                food_list = df_mapped.to_dict(orient='records')
-                supabase.table("foods").insert(food_list).execute()
-                st.success(f"Successfully imported {len(food_list)} items!")
-                st.balloons()
-                
-        except Exception as e:
-            st.error(f"Import Error: {e}")
+            # ... (the rest of the mapping code)
 
         res = supabase.table(tbl).select("*").order("date", desc=True).execute()
         if res.data:
