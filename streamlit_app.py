@@ -33,7 +33,7 @@ st.divider()
 st.subheader("🍴 Log a Meal")
 
 try:
-    food_query = supabase.table("foods").select("*").execute()
+    food_query = supabase.table("food_name").select("*").execute()
     if food_query.data:
         # Create a dictionary to store food info
         food_dict = {f["name"]: f for f in food_query.data}
@@ -88,7 +88,7 @@ with st.expander("➕ Add New Food to Library"):
                 "fat_g": f_fat,
             }
             try:
-                supabase.table("foods").insert(new_food).execute()
+                supabase.table("food_name").insert(new_food).execute()
                 st.success(f"Added {f_name} to your library!")
                 st.rerun()
             except Exception as e:
