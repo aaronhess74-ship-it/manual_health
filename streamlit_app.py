@@ -29,24 +29,14 @@ tab1, tab2, tab3, tab4 = st.tabs(
 )
 
 # --- TAB 1: NUTRITION ---
-# --- TAB 1: NUTRITION (FIXED QUICK LOG & STATUS) ---
 with tab1:
     try:
-        # Fetch the daily summary (totalled views)
         response = supabase.table("daily_variance").select("*").execute()
         if response.data:
             latest = response.data[0]
             st.subheader(f"Status for {latest['date']}")
             c1, c2, c3, c4, c5 = st.columns(5)
 
-            cals, prot = (
-                float(latest.get("total_calories", 0)),
-                float(latest.get("total_protein", 0)),
-            )
-            net_c, fat = (
-                float(latest.get("total_net_carbs", 0)),
-                float(latest.get("total_fat", 0)),
-            )
             cals = float(latest.get("total_calories", 0))
             prot = float(latest.get("total_protein", 0))
             net_c = float(latest.get("total_net_carbs", 0))
@@ -92,8 +82,6 @@ with tab1:
                 f"{int(fib)}g",
                 f"{int(fib - TARGET_FIBER_MIN)} vs Target",
             )
-    except:
-        pass
     except Exception as e:
         st.error("Waiting for daily summary data...")
 
@@ -130,8 +118,6 @@ with tab1:
                             }
                         ).execute()
                         st.rerun()
-            else:
-                st.info("Log a few items below to see Quick Log buttons here!")
     except:
         pass
 
@@ -151,18 +137,13 @@ with tab1:
                 if st.button("Log Meal"):
                     supabase.table("daily_logs").insert(
                         {
-                            "food_id": f["id"],
-                            "servings": 1.0,
                             "food_id": food["food_id"],
                             "servings": srv,
                             "log_date": str(datetime.now().date()),
                         }
                     ).execute()
                     st.rerun()
-    except:
-        pass
 
-# --- TAB 2: HEALTH METRICS (Restored Trends & Colored Status) ---
     with col_b:
         st.subheader("🆕 New Food")
         with st.form("new_f", clear_on_submit=True):
@@ -218,7 +199,7 @@ with tab1:
                 ).execute()
                 st.rerun()
 
-# --- TAB 2: HEALTH METRICS (RESTORED TRENDS & STATUS) ---
+# --- TAB 2: HEALTH METRICS ---
 with tab2:
     with st.expander("➕ Log New Vitals", expanded=True):
         with st.form("v_form"):
@@ -289,7 +270,6 @@ with tab2:
             m3.metric(f"Weight {wt_s}", f"{latest_v['weight_lb']} lbs")
 
             st.divider()
-            st.subheader("📉 Health Trends (with Targets)")
             st.subheader("📉 Health Trends")
             df_v["Target Weight"], df_v["Target Glucose"], df_v["Target BP"] = (
                 TARGET_WEIGHT,
@@ -320,10 +300,8 @@ with tab2:
             )
     except:
         st.info("Log your first vitals to see trends.")
-        st.info("No vitals data found yet.")
 
-# --- TAB 3: ACTIVITY (Restored Trends) ---
-# --- TAB 3: ACTIVITY (RESTORED TRENDS) ---
+# --- TAB 3: ACTIVITY ---
 with tab3:
     with st.form("act_form"):
         a_date = st.date_input("Date", datetime.now().date())
@@ -354,7 +332,6 @@ with tab3:
         )
         if a_res.data:
             df_a = pd.DataFrame(a_res.data)
-            st.subheader("🏃 Activity Trends")
             st.subheader("🏃 Activity History & Trends")
             st.line_chart(df_a, x="date", y="duration_min", color="#3498db")
             st.dataframe(
@@ -363,8 +340,7 @@ with tab3:
     except:
         pass
 
-# --- TAB 4: REPORTS & IMPORTER (With De-duplication) ---
-# --- TAB 4: REPORTS & IMPORTER (CLEAN & SAFE) ---
+# --- TAB 4: REPORTS & IMPORTER ---
 with tab4:
     st.subheader("📥 Universal Food Importer")
     import_type = st.selectbox(
@@ -400,6 +376,17 @@ with tab4:
             for col in ["calories", "protein_g", "carbs_g", "fat_g", "fiber_g"]:
                 if col not in df_mapped.columns:
                     df_mapped[col] = 0.0
+
+            if st.button("🚀 Confirm Upsert Import"):
+                supabase.table("foods").upsert(
+                    df_mapped.to_dict(orient="records"), on_conflict="food_name"
+                ).execute()
+                st.success("Import Successful!")
+                st.balloons()
+        except Exception as e:
+            st.error(f"Error: {e}")
+
+    st.divider()
     st.subheader("📊 Goal Performance")
     try:
         perf_res = supabase.table("daily_variance").select("*").execute()
@@ -413,14 +400,6 @@ with tab4:
     except:
         pass
 
-            if st.button("🚀 Confirm Upsert Import"):
-                supabase.table("foods").upsert(
-                    df_mapped.to_dict(orient="records"), on_conflict="food_name"
-                ).execute()
-                st.success("Import Successful!")
-                st.balloons()
-        except Exception as e:
-            st.error(f"Error: {e}")
     st.divider()
     st.subheader("📂 Master Data Export")
     report_type = st.selectbox(
