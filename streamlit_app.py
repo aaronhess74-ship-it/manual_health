@@ -336,21 +336,48 @@ with tab2:
     except:
         st.info("No vitals data found.")
 
-# --- TAB 3: ACTIVITY (FULL RESTORED) ---
+# --- TAB 3: ACTIVITY (RESTORED CONDITIONAL LOGIC) ---
 with tab3:
     with st.form("act_form"):
         a_date = st.date_input("Date", datetime.now().date())
-        name = st.text_input("Exercise Name")
-        c1, c2 = st.columns(2)
-        dur = c1.number_input("Minutes", min_value=0.0, max_value=1440.0, value=30.0)
-        dist = c2.number_input("Miles (if cardio)", min_value=0.0, value=0.0)
+        name = st.text_input("Exercise Name (e.g., Bench Press, Running)")
+
+        # RESTORED: Activity Type Radio
+        act_type = st.radio(
+            "Activity Type", ["Strength", "Cardio", "Hybrid/Other"], horizontal=True
+        )
+
+        c1, c2, c3 = st.columns(3)
+
+        # Dynamic Fields based on Type
+        if act_type == "Strength":
+            sets = c1.number_input("Sets", min_value=0, value=3)
+            reps = c2.number_input("Reps", min_value=0, value=10)
+            weight_ex = c3.number_input("Weight (lbs)", min_value=0, value=0)
+            dur = 0.0
+            dist = 0.0
+        elif act_type == "Cardio":
+            dur = c1.number_input("Duration (mins)", min_value=0.0, value=30.0)
+            dist = c2.number_input("Distance (miles)", min_value=0.0, value=0.0)
+            sets, reps, weight_ex = 0, 0, 0
+        else:
+            dur = c1.number_input("Duration (mins)", min_value=0.0, value=30.0)
+            sets = c2.number_input("Sets (optional)", min_value=0, value=0)
+            reps = c3.number_input("Reps (optional)", min_value=0, value=0)
+            dist = 0.0
+            weight_ex = 0
+
         if st.form_submit_button("Log Activity"):
             supabase.table("activity_logs").insert(
                 {
                     "date": str(a_date),
                     "exercise_name": name,
+                    "activity_type": act_type,
                     "duration_min": dur,
                     "distance_miles": dist,
+                    "sets": sets,
+                    "reps": reps,
+                    "weight_lbs": weight_ex,
                 }
             ).execute()
             st.rerun()
@@ -365,13 +392,33 @@ with tab3:
         )
         if a_res.data:
             df_a = pd.DataFrame(a_res.data)
-            st.subheader("🏃 Activity Trends")
-            st.line_chart(df_a, x="date", y="duration_min", color="#3498db")
+            st.subheader("🏃 Activity Trends & History")
+
+            # Show duration trend if cardio/hybrid exists
+            if not df_a[df_a["duration_min"] > 0].empty:
+                st.line_chart(
+                    df_a[df_a["duration_min"] > 0],
+                    x="date",
+                    y="duration_min",
+                    color="#3498db",
+                )
+
             st.dataframe(
-                df_a.sort_values(by="date", ascending=False), use_container_width=True
+                df_a.sort_values(by="date", ascending=False),
+                use_container_width=True,
+                column_order=[
+                    "date",
+                    "exercise_name",
+                    "activity_type",
+                    "sets",
+                    "reps",
+                    "weight_lbs",
+                    "duration_min",
+                    "distance_miles",
+                ],
             )
-    except:
-        pass
+    except Exception as e:
+        st.info("Log your first activity to see history.")
 
 # --- TAB 4: REPORTS & EXPORTS (FULL RESTORED) ---
 with tab4:
