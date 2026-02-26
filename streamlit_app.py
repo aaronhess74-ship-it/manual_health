@@ -116,8 +116,7 @@ with tab2:
     st.subheader("📈 Health Trends")
     time_view = st.radio("View Range:", ["7 Days", "30 Days", "Year"], horizontal=True)
 
-    # Calculate cutoff date
-    today = datetime.now()
+    today = datetime.now().date()
     if time_view == "7 Days":
         cutoff = today - timedelta(days=7)
     elif time_view == "30 Days":
@@ -126,11 +125,11 @@ with tab2:
         cutoff = today - timedelta(days=365)
 
     try:
-        # Fetch data (no limit, let the filter handle it)
+        # Fetch data and sort by date/time
         res = (
             supabase.table("health_metrics")
             .select("*")
-            .gte("date", cutoff.date().isoformat())
+            .gte("date", cutoff.isoformat())
             .order("date", desc=False)
             .order("time", desc=False)
             .execute()
@@ -139,15 +138,7 @@ with tab2:
         if res.data:
             df = pd.DataFrame(res.data)
 
-            # Create the datetime column for precision
-            df["datetime"] = pd.to_datetime(
-                df["date"].astype(str) + " " + df["time"].astype(str),
-                format="mixed",
-                errors="coerce",
-            )
-            df = df.dropna(subset=["datetime"]).sort_values("datetime")
-
-            # Ensure numeric
+            # 1. Convert numeric columns
             metrics = [
                 "blood_pressure_systolic",
                 "blood_pressure_diastolic",
@@ -157,24 +148,22 @@ with tab2:
             for m in metrics:
                 df[m] = pd.to_numeric(df[m], errors="coerce")
 
-            # --- PLOTTING ---
-            # To get daily labels on the bottom but keep high-res data,
-            # we pass the full dataframe but tell Streamlit the X-axis is 'datetime'
+            # 2. Prepare the Chart Data
+            # We use the 'date' column for the X-axis so it groups by day visually.
+            # Because we DON'T aggregate, Streamlit will plot multiple points on the same vertical 'day' line.
 
-            st.write(f"#### Blood Pressure ({time_view})")
+            st.write(f"#### Blood Pressure Trend")
             st.line_chart(
-                df,
-                x="datetime",
-                y=["blood_pressure_systolic", "blood_pressure_diastolic"],
+                df, x="date", y=["blood_pressure_systolic", "blood_pressure_diastolic"]
             )
 
-            weight_df = df[df["weight_lb"] > 0]
+            weight_df = df[df["weight_lb"] > 0].copy()
             if not weight_df.empty:
-                st.write(f"#### Weight Trend ({time_view})")
-                st.line_chart(weight_df, x="datetime", y="weight_lb")
+                st.write(f"#### Weight Trend (lbs)")
+                st.line_chart(weight_df, x="date", y="weight_lb")
 
-            st.write(f"#### Blood Glucose ({time_view})")
-            st.line_chart(df, x="datetime", y="blood_glucose")
+            st.write(f"#### Blood Glucose Trend")
+            st.line_chart(df, x="date", y="blood_glucose")
 
         else:
             st.info(f"No data found for the last {time_view}.")
