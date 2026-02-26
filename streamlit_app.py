@@ -21,8 +21,16 @@ TARGET_WEIGHT = 180
 TARGET_GLUCOSE = 100
 TARGET_BP_SYS = 130
 
-tab1, tab2, tab3 = st.tabs(
-    ["🍴 Nutrition Budget", "🩺 Health Metrics", "🏃 Activity Tracker"]
+# Visual Constants
+C_RED, C_YELLOW, C_GREEN, C_GRAY = "#e74c3c", "#f1c40f", "#2ecc71", "#bdc3c7"
+
+tab1, tab2, tab3, tab4 = st.tabs(
+    [
+        "🍴 Nutrition Budget",
+        "🩺 Health Metrics",
+        "🏃 Activity Tracker",
+        "📊 Reports & Exports",
+    ]
 )
 
 # --- TAB 1: NUTRITION BUDGET ---
@@ -58,31 +66,26 @@ with tab1:
                 f"Calories {get_status_icon(cals, TARGET_CALORIES)}",
                 f"{int(cals)}",
                 f"{int(TARGET_CALORIES - cals)} Left",
-                delta_color="off",
             )
             c2.metric(
                 f"Protein {get_status_icon(prot, TARGET_PROTEIN, False)}",
                 f"{int(prot)}g",
                 f"{int(prot - TARGET_PROTEIN)} vs Target",
-                delta_color="off",
             )
             c3.metric(
                 f"Net Carbs {get_status_icon(net_c, TARGET_NET_CARBS)}",
                 f"{int(net_c)}g",
                 f"{int(TARGET_NET_CARBS - net_c)} Left",
-                delta_color="off",
             )
             c4.metric(
                 f"Total Fat {get_status_icon(fat, TARGET_FAT_MAX)}",
                 f"{int(fat)}g",
                 f"{int(TARGET_FAT_MAX - fat)} Left",
-                delta_color="off",
             )
             c5.metric(
                 f"Fiber {get_status_icon(fib, TARGET_FIBER_MIN, False)}",
                 f"{int(fib)}g",
                 f"{int(fib - TARGET_FIBER_MIN)} vs Target",
-                delta_color="off",
             )
     except:
         pass
@@ -100,10 +103,11 @@ with tab1:
         if recent.data:
             seen, quick_foods = set(), []
             for r in recent.data:
-                fid, fname = r["food_id"], r["foods"]["food_name"]
-                if fid not in seen and fid is not None:
-                    quick_foods.append({"id": fid, "name": fname})
-                    seen.add(fid)
+                if r.get("foods"):
+                    fid, fname = r["food_id"], r["foods"]["food_name"]
+                    if fid not in seen:
+                        quick_foods.append({"id": fid, "name": fname})
+                        seen.add(fid)
                 if len(quick_foods) == 5:
                     break
             cols = st.columns(len(quick_foods))
@@ -130,33 +134,16 @@ with tab1:
             sel = st.selectbox("Search...", options=list(f_dict.keys()), index=None)
             if sel:
                 food = f_dict[sel]
-                if food.get("fat_g") is None or pd.isna(food.get("fat_g")):
-                    st.info(f"Adding missing macros for {sel}")
-                    u_fat = st.number_input("Fat", 0.0)
-                    u_fib = st.number_input("Fiber", 0.0)
-                    if st.button("Update & Log"):
-                        supabase.table("foods").update(
-                            {"fat_g": u_fat, "fiber_g": u_fib}
-                        ).eq("food_id", food["food_id"]).execute()
-                        supabase.table("daily_logs").insert(
-                            {
-                                "food_id": food["food_id"],
-                                "servings": 1.0,
-                                "log_date": str(datetime.now().date()),
-                            }
-                        ).execute()
-                        st.rerun()
-                else:
-                    srv = st.number_input("Servings", 0.1, 10.0, value=1.0, step=0.1)
-                    if st.button("Log Meal"):
-                        supabase.table("daily_logs").insert(
-                            {
-                                "food_id": food["food_id"],
-                                "servings": srv,
-                                "log_date": str(datetime.now().date()),
-                            }
-                        ).execute()
-                        st.rerun()
+                srv = st.number_input("Servings", 0.1, 10.0, value=1.0, step=0.1)
+                if st.button("Log Meal"):
+                    supabase.table("daily_logs").insert(
+                        {
+                            "food_id": food["food_id"],
+                            "servings": srv,
+                            "log_date": str(datetime.now().date()),
+                        }
+                    ).execute()
+                    st.rerun()
 
     with col_b:
         st.subheader("🆕 New Food")
@@ -168,8 +155,7 @@ with tab1:
                 c_p.number_input("Prot", 0),
                 c_cb.number_input("Carb", 0),
             )
-            c_f, c_fi = st.columns(2)
-            nf, nfi = c_f.number_input("Fat", 0), c_fi.number_input("Fib", 0)
+            nf, nfi = st.number_input("Fat", 0), st.number_input("Fib", 0)
             if st.form_submit_button("Save & Log"):
                 if n_name:
                     res = (
@@ -195,24 +181,6 @@ with tab1:
                             }
                         ).execute()
                         st.rerun()
-
-    st.subheader("📜 Today's History")
-    h_res = (
-        supabase.table("daily_logs")
-        .select("log_id, servings, foods(food_name, calories)")
-        .eq("log_date", str(datetime.now().date()))
-        .execute()
-    )
-    if h_res.data:
-        for item in h_res.data:
-            hc1, hc2, hc3 = st.columns([3, 1, 1])
-            hc1.write(f"**{item['foods']['food_name']}**")
-            hc2.write(f"{int(item['foods']['calories'] * item['servings'])} cal")
-            if hc3.button("🗑️", key=f"del_{item['log_id']}"):
-                supabase.table("daily_logs").delete().eq(
-                    "log_id", item["log_id"]
-                ).execute()
-                st.rerun()
 
 # --- TAB 2: HEALTH METRICS ---
 with tab2:
@@ -240,56 +208,42 @@ with tab2:
                 ).execute()
                 st.rerun()
 
-    st.divider()
-
     try:
-        all_vitals = (
+        all_v = (
             supabase.table("health_metrics")
             .select("*")
             .order("date", desc=False)
             .execute()
         )
-        if all_vitals.data:
-            df_v = pd.DataFrame(all_vitals.data)
-            latest_v = all_vitals.data[-1]
+        if all_v.data:
+            df_v = pd.DataFrame(all_v.data)
+            latest_v = all_v.data[-1]
 
-            # Colors
-            C_RED, C_YELLOW, C_GREEN = "#e74c3c", "#f1c40f", "#2ecc71"
-            # Standard Hex Colors
-            C_RED, C_YELLOW, C_GREEN, C_GRAY = (
-                "#e74c3c",
-                "#f1c40f",
-                "#2ecc71",
-                "#bdc3c7",
-            )
-
-            # Logic Functions
             def get_bp_info(s):
-                if s < 130:
-                    return "🟢 OK", C_GREEN
-                if s < 140:
-                    return "🟡 NEAR", C_YELLOW
-                return "🔴 HIGH", C_RED
+                return (
+                    ("🟢 OK", C_GREEN)
+                    if s < 130
+                    else (("🟡 NEAR", C_YELLOW) if s < 140 else ("🔴 HIGH", C_RED))
+                )
 
             def get_glu_info(g):
-                if g < 100:
-                    return "🟢 OK", C_GREEN
-                if g < 126:
-                    return "🟡 NEAR", C_YELLOW
-                return "🔴 HIGH", C_RED
+                return (
+                    ("🟢 OK", C_GREEN)
+                    if g < 100
+                    else (("🟡 NEAR", C_YELLOW) if g < 126 else ("🔴 HIGH", C_RED))
+                )
 
             def get_wt_info(w):
-                if w < 180:
-                    return "🟢 OK", C_GREEN
-                if w < 220:
-                    return "🟡 HIGH", C_YELLOW
-                return "🔴 DANGER", C_RED
+                return (
+                    ("🟢 OK", C_GREEN)
+                    if w <= TARGET_WEIGHT
+                    else (("🟡 HIGH", C_YELLOW) if w < 200 else ("🔴 DANGER", C_RED))
+                )
 
             bp_s, bp_c = get_bp_info(latest_v["blood_pressure_systolic"])
             gl_s, gl_c = get_glu_info(latest_v["blood_glucose"])
             wt_s, wt_c = get_wt_info(latest_v["weight_lb"])
 
-            # Top Metrics
             m1, m2, m3 = st.columns(3)
             m1.metric(
                 f"BP {bp_s}",
@@ -297,49 +251,38 @@ with tab2:
             )
             m2.metric(f"Glucose {gl_s}", f"{latest_v['blood_glucose']} mg/dL")
             m3.metric(
-                f"Weight",
                 f"Weight {wt_s}",
                 f"{latest_v['weight_lb']} lbs",
                 f"{round(latest_v['weight_lb'] - TARGET_WEIGHT, 1)} vs Target",
-                delta_color="off",
             )
 
             st.divider()
-            st.subheader("📈 Health Trends (with Target Lines)")
-            st.subheader("📈 Health Trends")
-
-            # Creating DataFrames for charts with baseline targets
-            # Prepare Target Lines in DataFrame
-            df_v["Target Weight"] = TARGET_WEIGHT
-            df_v["Target Glucose"] = TARGET_GLUCOSE
-            df_v["Target Systolic"] = TARGET_BP_SYS
+            st.subheader("📉 Health Trends (Gray Lines = Targets)")
+            df_v["Target Weight"], df_v["Target Glucose"], df_v["Target Systolic"] = (
+                TARGET_WEIGHT,
+                TARGET_GLUCOSE,
+                TARGET_BP_SYS,
+            )
 
             t1, t2 = st.columns(2)
             with t1:
-                st.write("**Weight vs Goal**")
                 st.write(f"**Weight vs Goal ({wt_s})**")
-                # Line 1: Weight (Status Color), Line 2: Target (Gray)
                 st.line_chart(
                     df_v,
                     x="date",
                     y=["weight_lb", "Target Weight"],
-                    color=["#3498db", "#bdc3c7"],
                     color=[wt_c, C_GRAY],
                 )
-
             with t2:
                 st.write(f"**Glucose vs Goal ({gl_s})**")
-                # Line 1: Glucose (Status Color), Line 2: Target (Gray)
                 st.line_chart(
                     df_v,
                     x="date",
                     y=["blood_glucose", "Target Glucose"],
-                    color=[gl_c, "#bdc3c7"],
                     color=[gl_c, C_GRAY],
                 )
 
             st.write(f"**Blood Pressure Trend ({bp_s})**")
-            # Line 1: Systolic (Status Color), Line 2: Diastolic (Dim Gray), Line 3: Target (Light Gray)
             st.line_chart(
                 df_v,
                 x="date",
@@ -348,15 +291,11 @@ with tab2:
                     "blood_pressure_diastolic",
                     "Target Systolic",
                 ],
-                color=[bp_c, "#95a5a6", "#bdc3c7"],
                 color=[bp_c, "#95a5a6", C_GRAY],
             )
-
     except:
-        st.info("No data logged yet.")
+        st.info("No vitals logged yet.")
 
-    except Exception as e:
-        st.info("Log some vitals to see trends!")
 # --- TAB 3: ACTIVITY TRACKER ---
 with tab3:
     cat = st.radio("Type:", ["Strength", "Static", "Cardio"], horizontal=True)
@@ -384,24 +323,41 @@ with tab3:
                 }
             ).execute()
             st.rerun()
+
     st.divider()
-    a_res = (
-        supabase.table("activity_logs").select("*").order("date", desc=False).execute()
-    )
-    if a_res.data:
-        df_a = pd.DataFrame(a_res.data)
-        df_a["pace"] = df_a.apply(
-            lambda r: (
-                round(r["duration_min"] / r["distance_miles"], 2)
-                if r["distance_miles"] > 0
-                else None
-            ),
-            axis=1,
+    try:
+        a_res = (
+            supabase.table("activity_logs")
+            .select("*")
+            .order("date", desc=False)
+            .execute()
         )
-        st.subheader("Duration Trends")
-        st.line_chart(df_a, x="date", y="duration_min")
-        df_c = df_a[df_a["type"] == "Cardio"].dropna(subset=["pace"])
-        if not df_c.empty:
-            st.subheader("Cardio Pace")
-            st.line_chart(df_c, x="date", y="pace")
-        st.dataframe(df_a)
+        if a_res.data:
+            df_a = pd.DataFrame(a_res.data)
+            st.subheader("🏃 Activity Trends")
+            st.line_chart(df_a, x="date", y="duration_min", color="#3498db")
+            st.dataframe(
+                df_a.sort_values(by="date", ascending=False), use_container_width=True
+            )
+    except:
+        pass
+
+# --- TAB 4: REPORTS & EXPORTS ---
+with tab4:
+    st.subheader("📊 Master Combined Report")
+    try:
+        n = pd.DataFrame(supabase.table("daily_variance").select("*").execute().data)
+        h = pd.DataFrame(supabase.table("health_metrics").select("*").execute().data)
+        if not n.empty and not h.empty:
+            df_master = pd.merge(n, h, on="date", how="outer").sort_values(
+                by="date", ascending=False
+            )
+            st.dataframe(df_master, use_container_width=True)
+            csv = df_master.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "📥 Download Master CSV", csv, "master_report.csv", "text/csv"
+            )
+        else:
+            st.warning("Not enough data to combine reports.")
+    except:
+        pass
