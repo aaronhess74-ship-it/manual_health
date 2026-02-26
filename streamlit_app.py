@@ -31,46 +31,86 @@ with tab1:
             st.subheader(f"Status for {latest['date']}")
             c1, c2, c3, c4, c5 = st.columns(5)
 
-            cals = int(latest.get("total_calories", 0))
-            prot = int(latest.get("total_protein", 0))
-            net_c = int(latest.get("total_net_carbs", 0))
-            fat = int(latest.get("total_fat", 0))
-            fib = int(latest.get("total_fiber", 0))
+            # Ensure we are working with floats/ints
+            cals = float(latest.get("total_calories", 0))
+            prot = float(latest.get("total_protein", 0))
+            net_c = float(latest.get("total_net_carbs", 0))
+            fat = float(latest.get("total_fat", 0))
+            fib = float(latest.get("total_fiber", 0))
 
-            # --- CEILING LOGIC (Cals, Net Carbs, Fat) ---
-            def get_ceil_status(curr, target):
-                diff = target - curr
-                if curr > target:
-                    return diff, "inverse"  # Red
-                if curr >= (target * 0.90):
-                    return diff, "off"  # Yellow/Grey
-                return diff, "normal"  # Green
+            # 1. Calories (Ceiling: 1800)
+            # Logic: If > 1800 (Inverse/Red). If 1620-1800 (Off/Yellow). Else (Normal/Green).
+            cal_delta = TARGET_CALORIES - cals
+            cal_color = "normal"
+            if cals > TARGET_CALORIES:
+                cal_color = "inverse"
+            elif cals >= (TARGET_CALORIES * 0.90):
+                cal_color = "off"
+            c1.metric(
+                "Calories",
+                f"{int(cals)}",
+                f"{int(cal_delta)} Left",
+                delta_color=cal_color,
+            )
 
-            # --- FLOOR LOGIC (Protein, Fiber) ---
-            def get_floor_status(curr, target):
-                diff = curr - target
-                if curr >= target:
-                    return diff, "normal"  # Green
-                if curr >= (target * 0.90):
-                    return diff, "off"  # Yellow/Grey
-                return diff, "inverse"  # Red
+            # 2. Protein (Floor: 160)
+            # Logic: If >= 160 (Normal/Green). If 144-159 (Off/Yellow). Else (Inverse/Red).
+            prot_delta = prot - TARGET_PROTEIN
+            prot_color = "normal"
+            if prot < (TARGET_PROTEIN * 0.90):
+                prot_color = "inverse"
+            elif prot < TARGET_PROTEIN:
+                prot_color = "off"
+            c2.metric(
+                "Protein",
+                f"{int(prot)}g",
+                f"{int(prot_delta)} vs Target",
+                delta_color=prot_color,
+            )
 
-            d_cal, s_cal = get_ceil_status(cals, TARGET_CALORIES)
-            c1.metric("Calories", f"{cals}", f"{d_cal} Left", delta_color=s_cal)
+            # 3. Net Carbs (Ceiling: 60)
+            carb_delta = TARGET_NET_CARBS - net_c
+            carb_color = "normal"
+            if net_c > TARGET_NET_CARBS:
+                carb_color = "inverse"
+            elif net_c >= (TARGET_NET_CARBS * 0.90):
+                carb_color = "off"
+            c3.metric(
+                "Net Carbs",
+                f"{int(net_c)}g",
+                f"{int(carb_delta)} Left",
+                delta_color=carb_color,
+            )
 
-            d_prot, s_prot = get_floor_status(prot, TARGET_PROTEIN)
-            c2.metric("Protein", f"{prot}g", f"{d_prot} vs Target", delta_color=s_prot)
+            # 4. Total Fat (Ceiling: 60)
+            fat_delta = TARGET_FAT_MAX - fat
+            fat_color = "normal"
+            if fat > TARGET_FAT_MAX:
+                fat_color = "inverse"
+            elif fat >= (TARGET_FAT_MAX * 0.90):
+                fat_color = "off"
+            c4.metric(
+                "Total Fat",
+                f"{int(fat)}g",
+                f"{int(fat_delta)} Left",
+                delta_color=fat_color,
+            )
 
-            d_net, s_net = get_ceil_status(net_c, TARGET_NET_CARBS)
-            c3.metric("Net Carbs", f"{net_c}g", f"{d_net} Left", delta_color=s_net)
-
-            d_fat, s_fat = get_ceil_status(fat, TARGET_FAT_MAX)
-            c4.metric("Total Fat", f"{fat}g", f"{d_fat} Left", delta_color=s_fat)
-
-            d_fib, s_fib = get_floor_status(fib, TARGET_FIBER_MIN)
-            c5.metric("Fiber", f"{fib}g", f"{d_fib} vs Target", delta_color=s_fib)
-    except:
-        pass
+            # 5. Fiber (Floor: 30)
+            fib_delta = fib - TARGET_FIBER_MIN
+            fib_color = "normal"
+            if fib < (TARGET_FIBER_MIN * 0.90):
+                fib_color = "inverse"
+            elif fib < TARGET_FIBER_MIN:
+                fib_color = "off"
+            c5.metric(
+                "Fiber",
+                f"{int(fib)}g",
+                f"{int(fib_delta)} vs Target",
+                delta_color=fib_color,
+            )
+    except Exception as e:
+        st.error(f"Display Error: {e}")
 
     st.divider()
     st.subheader("⚡ Quick Log")
@@ -115,7 +155,6 @@ with tab1:
             sel = st.selectbox("Search...", options=list(f_dict.keys()), index=None)
             if sel:
                 food = f_dict[sel]
-                # Check for missing macros
                 if food.get("fat_g") is None or pd.isna(food.get("fat_g")):
                     st.info(f"Adding missing macros for {sel}")
                     u_fat = st.number_input("Fat", 0.0)
