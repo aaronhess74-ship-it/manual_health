@@ -450,39 +450,60 @@ with tab4:
             else "activity_logs"
         )
     # --- ADD THIS AT THE VERY BOTTOM ---
-    st.divider()
-    st.subheader("📤 Bulk Import Kaggle Dataset")
-    st.write("Upload the 'Food_Nutrition_Dataset.csv' to map it to your format.")
+st.divider()
+    st.subheader("📥 Universal Food Importer")
+    st.write("Supports Kaggle (Daily Food) and USDA (Foundation Foods) formats.")
 
-    uploaded_file = st.file_uploader("Choose Kaggle CSV", type="csv")
+    import_type = st.selectbox("Select Source Format", ["Daily Food & Nutrition (Kaggle)", "USDA FoodData Central"])
+    uploaded_file = st.file_uploader("Upload CSV File", type="csv")
 
     if uploaded_file is not None:
         try:
-            df_kaggle = pd.read_csv(uploaded_file)
+            df_raw = pd.read_csv(uploaded_file)
+            df_raw.columns = df_raw.columns.str.strip() # Clean headers
+            
+            if import_type == "Daily Food & Nutrition (Kaggle)":
+                # Mapping for https://www.kaggle.com/datasets/adilshamim8/daily-food-and-nutrition-dataset
+                mapping = {
+                    'Food_Item': 'food_name',
+                    'Calories (kcal)': 'calories',
+                    'Protein (g)': 'protein_g',
+                    'Carbohydrates (g)': 'carbs_g',
+                    'Fat (g)': 'fat_g',
+                    'Fiber (g)': 'fiber_g'
+                }
+            else:
+                # Mapping for USDA Foundation Foods (standard CSV export)
+                # Note: USDA often uses 'description' for the name
+                mapping = {
+                    'description': 'food_name',
+                    'Energy': 'calories',
+                    'Protein': 'protein_g',
+                    'Carbohydrate, by difference': 'carbs_g',
+                    'Total lipid (fat)': 'fat_g',
+                    'Fiber, total dietary': 'fiber_g'
+                }
 
-            # Map Kaggle headers to your Database headers
-            mapping = {
-                "food_name": "food_name",
-                "calories": "calories",
-                "protein": "protein_g",
-                "carbs": "carbs_g",
-                "fat": "fat_g",
-            }
-
-            # Filter and rename columns
-            df_mapped = df_kaggle[list(mapping.keys())].rename(columns=mapping)
-            df_mapped["fiber_g"] = 0.0  # Add missing fiber column
-
-            st.write("Preview of Mapped Data:")
+            # Filter only columns that exist in the uploaded file
+            existing_cols = [col for col in mapping.keys() if col in df_raw.columns]
+            df_mapped = df_raw[existing_cols].rename(columns=mapping)
+            
+            # Fill any missing required columns with 0.0
+            for col in ['calories', 'protein_g', 'carbs_g', 'fat_g', 'fiber_g']:
+                if col not in df_mapped.columns:
+                    df_mapped[col] = 0.0
+            
+            st.write(f"Previewing {len(df_mapped)} items:")
             st.dataframe(df_mapped.head())
-
-            if st.button("🚀 Confirm Bulk Import"):
-                food_list = df_mapped.to_dict(orient="records")
+            
+            if st.button("🚀 Confirm Universal Import"):
+                food_list = df_mapped.to_dict(orient='records')
                 supabase.table("foods").insert(food_list).execute()
                 st.success(f"Successfully imported {len(food_list)} items!")
                 st.balloons()
+                
         except Exception as e:
-            st.error(f"Mapping failed: {e}")
+            st.error(f"Import Error: {e}")
 
         res = supabase.table(tbl).select("*").order("date", desc=True).execute()
         if res.data:
