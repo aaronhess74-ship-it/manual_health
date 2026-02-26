@@ -501,9 +501,16 @@ with tab4:
             st.dataframe(df_mapped.head())
 
             if st.button("🚀 Confirm Universal Import"):
-                food_list = df_mapped.to_dict(orient="records")
-                supabase.table("foods").insert(food_list).execute()
-                st.success(f"Successfully imported {len(food_list)} items!")
-                st.balloons()
-        except Exception as e:
-            st.error(f"Import Error: {e}")
+                food_list = df_mapped.to_dict(orient='records')
+                try:
+                    # .upsert handles the "Unique" logic
+                    # on_conflict='food_name' matches your SQL constraint
+                    supabase.table("foods").upsert(
+                        food_list, 
+                        on_conflict='food_name'
+                    ).execute()
+                    
+                    st.success(f"Successfully processed {len(food_list)} items! (Duplicates were updated or skipped)")
+                    st.balloons()
+                except Exception as e:
+                    st.error(f"Import Error: {e}")
