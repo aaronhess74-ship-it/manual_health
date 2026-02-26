@@ -5,6 +5,8 @@ from supabase import create_client
 url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase = create_client(url, key)
+# Add this right below it to "poke" the connection:
+st.sidebar.write("Connected to:", url.split("//")[1].split(".")[0])
 
 st.title("💪 My Health Budget")
 
