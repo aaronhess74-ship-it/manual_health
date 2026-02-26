@@ -8,10 +8,10 @@ url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase = create_client(url, key)
 
-st.set_page_config(page_title="Health Dashboard", layout="wide")
+st.set_page_config(page_title="My Health Dashboard", layout="wide")
 st.title("💪 My Health Dashboard")
 
-# Define your targets here manually (since we don't have a targets table)
+# Define your targets here manually
 TARGET_CALORIES = 2000
 TARGET_PROTEIN = 150
 TARGET_CARBS = 250
@@ -27,7 +27,6 @@ with tab1:
             st.subheader(f"Status for {latest['date']}")
 
             c1, c2, c3 = st.columns(3)
-            # Math based on hardcoded constants above
             c1.metric(
                 "Calories",
                 f"{latest['total_calories']}",
@@ -48,7 +47,7 @@ with tab1:
 
     st.divider()
 
-    # Log Meal Form
+    st.subheader("🍴 Log a Meal")
     try:
         food_query = supabase.table("foods").select("*").execute()
         if food_query.data:
@@ -72,6 +71,30 @@ with tab1:
                     st.rerun()
     except Exception as e:
         st.error(f"Food Log Error: {e}")
+
+    with st.expander("➕ Add New Food to Library"):
+        with st.form("new_food_form", clear_on_submit=True):
+            f_name = st.text_input("Food Name")
+            f_brand = st.text_input("Brand")
+            f_size = st.text_input("Serving Size")
+            c1, c2, c3 = st.columns(3)
+            f_cal = c1.number_input("Calories", min_value=0)
+            f_prot = c2.number_input("Protein (g)", min_value=0)
+            f_carb = c3.number_input("Carbs (g)", min_value=0)
+            f_fat = st.number_input("Fat (g)", min_value=0)
+            if st.form_submit_button("Save Food") and f_name:
+                new_food = {
+                    "food_name": f_name,
+                    "brand": f_brand,
+                    "serving_size": f_size,
+                    "calories": f_cal,
+                    "protein_g": f_prot,
+                    "carbs_g": f_carb,
+                    "fat_g": f_fat,
+                }
+                supabase.table("foods").insert(new_food).execute()
+                st.success(f"Added {f_name}!")
+                st.rerun()
 
 # --- TAB 2: HEALTH METRICS ---
 with tab2:
@@ -115,6 +138,7 @@ with tab2:
     st.subheader("📈 Health Trends")
 
     try:
+        # Fetch data
         res = (
             supabase.table("health_metrics")
             .select("*")
@@ -122,11 +146,20 @@ with tab2:
             .limit(50)
             .execute()
         )
-        if res.data:
+
+        if res.data and len(res.data) > 0:
             df = pd.DataFrame(res.data)
-            # Create a timestamp for cleaner sorting on the X-axis
-            df["timestamp"] = pd.to_datetime(df["date"] + " " + df["time"])
+
+            # Combine Date and Time strings into a Timestamp for the chart axis
+            df["timestamp"] = pd.to_datetime(
+                df["date"].astype(str) + " " + df["time"].astype(str)
+            )
             df = df.sort_values("timestamp")
+
+            # Clean Weight: Fill empty weight values with the last known weight (forward/backward fill)
+            if "weight_lb" in df.columns:
+                df["weight_lb"] = pd.to_numeric(df["weight_lb"], errors="coerce")
+                df["weight_lb"] = df["weight_lb"].ffill().bfill()
 
             # 1. Blood Pressure Chart
             st.write("#### Blood Pressure")
@@ -137,11 +170,19 @@ with tab2:
             )
 
             # 2. Weight Chart
-            st.write("#### Weight (lbs)")
-            st.line_chart(df, x="timestamp", y="weight_lb")
+            if "weight_lb" in df.columns and not df["weight_lb"].isnull().all():
+                st.write("#### Weight (lbs)")
+                st.line_chart(df, x="timestamp", y="weight_lb")
 
             # 3. Glucose Chart
             st.write("#### Blood Glucose")
             st.line_chart(df, x="timestamp", y="blood_glucose")
+
+            # Debug Table (Optional: uncomment to see raw data if charts don't appear)
+            # with st.expander("🛠️ View Logged Data Table"):
+            #     st.dataframe(df)
+        else:
+            st.info("No health data found yet. Log your first vitals or weight above!")
+
     except Exception as e:
-        st.info("Log your first vitals to see trend charts!")
+        st.error(f"Chart Display Error: {e}")
