@@ -88,7 +88,7 @@ with st.expander("➕ Add New Food to Library"):
                 "fat_g": f_fat,
             }
             try:
-                supabase.table("food_name").insert(new_food).execute()
+                supabase.table("foods").insert(new_food).execute()
                 st.success(f"Added {f_name} to your library!")
                 st.rerun()
             except Exception as e:
