@@ -25,7 +25,7 @@ tab1, tab2, tab3 = st.tabs(
     ["🍴 Nutrition Budget", "🩺 Health Metrics", "🏃 Activity Tracker"]
 )
 
-# --- TAB 1: NUTRITION BUDGET ---
+# --- TAB 1: NUTRITION BUDGET (Restored) ---
 with tab1:
     try:
         response = supabase.table("daily_variance").select("*").execute()
@@ -308,7 +308,6 @@ with tab2:
 # --- TAB 3: ACTIVITY TRACKER ---
 with tab3:
     st.subheader("🏃 Log Activity")
-
     category = st.radio(
         "Activity Type:", ["Strength", "Static", "Cardio"], horizontal=True
     )
@@ -319,22 +318,18 @@ with tab3:
         ex_name = col2.text_input("Exercise Name (e.g. Walking, Pushups, Planks)")
 
         c1, c2, c3 = st.columns(3)
-
         dur = 0.0
-        sets = reps = 0
+        sets = 0
+        reps = 0
         dist = 0.0
 
         if category == "Strength":
             sets = c1.number_input("Sets", min_value=0, value=0)
             reps = c2.number_input("Reps", min_value=0, value=0)
-            # Duration added as optional float for timed strength sets
-            dur = c3.number_input("Duration (min)", min_value=0.0, value=0.0, step=0.1)
-
         elif category == "Static":
             dur = c1.number_input("Duration (min)", min_value=0.0, value=0.0, step=0.1)
             sets = c2.number_input("Sets", min_value=0, value=0)
             reps = c3.number_input("Reps", min_value=0, value=0)
-
         elif category == "Cardio":
             dur = c1.number_input("Duration (min)", min_value=0.0, value=0.0, step=0.1)
             dist = c2.number_input("Distance (mi)", min_value=0.0, value=0.0, step=0.1)
@@ -344,10 +339,10 @@ with tab3:
                 act_data = {
                     "date": str(ex_date),
                     "exercise_name": ex_name,
-                    "duration_min": dur,
-                    "sets": sets,
-                    "reps": reps,
-                    "distance_miles": dist,
+                    "duration_min": float(dur),
+                    "sets": int(sets),
+                    "reps": int(reps),
+                    "distance_miles": float(dist),
                     "type": category,
                 }
                 supabase.table("activity_logs").insert(act_data).execute()
@@ -365,13 +360,20 @@ with tab3:
         if act_res.data:
             df_a = pd.DataFrame(act_res.data)
 
+            # PACE CALCULATION: min/mile
+            def calc_pace(row):
+                if row["type"] == "Cardio" and row["distance_miles"] > 0:
+                    return round(row["duration_min"] / row["distance_miles"], 2)
+                return None
+
+            df_a["pace_min_mi"] = df_a.apply(calc_pace, axis=1)
+
             last_dur = df_a["duration_min"].iloc[-1]
             act_color = (
                 COLOR_NORMAL
                 if last_dur >= 30
                 else (COLOR_WARNING if last_dur >= 11 else COLOR_DANGER)
             )
-
             st.markdown(
                 f"**Current Session Status:** {'🟢 Great (30m+)' if last_dur >= 30 else '🟡 Moderate (11-29m)' if last_dur >= 11 else '🔴 Short (0-10m)'}"
             )
@@ -379,7 +381,7 @@ with tab3:
 
             st.divider()
             st.subheader("📜 Activity History")
-            # History table now supports showing the precise decimals
+            # Added Pace to the display columns
             st.dataframe(
                 df_a[
                     [
@@ -388,6 +390,7 @@ with tab3:
                         "type",
                         "duration_min",
                         "distance_miles",
+                        "pace_min_mi",
                         "sets",
                         "reps",
                     ]
@@ -401,7 +404,5 @@ with tab3:
                 data=csv_act,
                 file_name=f"workout_log_{datetime.now().date()}.csv",
             )
-        else:
-            st.info("No activities logged yet.")
     except:
         pass
