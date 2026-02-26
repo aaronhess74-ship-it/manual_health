@@ -34,15 +34,21 @@ except Exception as e:
 st.divider()
 
 # --- PART 2: THE DROPDOWN (Manual Fix) ---
+# --- PART 2: THE DROPDOWN (Manual Override) ---
 st.subheader("🍴 Quick Log Meal")
 
 try:
-    # We fetch ALL columns to avoid naming errors
+    # 1. Fetch the data
     food_query = supabase.table("foods").select("*").execute()
 
     if food_query.data:
-        # HARD-CODED NAMES: Changing 'id' to 'food_id' and 'food_name' to whatever you used
-        # If your column is 'Name', change 'food_name' to 'Name' below:
+        # --- DATA INSPECTOR (Temporary) ---
+        # This will show you exactly what column names Supabase is sending back
+        first_row = food_query.data[0]
+        st.write("🔍 Database Inspector - I see these columns:", list(first_row.keys()))
+
+        # 2. Map the columns (Change 'food_name' or 'food_id' if the inspector shows different names)
+        # For example, if it says ['ID', 'Name'], change the words below to match.
         food_options = {f["food_name"]: f["food_id"] for f in food_query.data}
 
         with st.form("meal_form", clear_on_submit=True):
@@ -56,18 +62,15 @@ try:
                 new_log = {
                     "food_id": food_options[selected_food],
                     "servings": servings,
-                    "log_date": "2026-02-26",  # Hardcoded for testing, we can automate later
+                    "log_date": "2026-02-26",
                 }
                 supabase.table("daily_logs").insert(new_log).execute()
-                st.success(f"Successfully logged {selected_food}!")
+                st.success(f"Logged {selected_food}!")
                 st.rerun()
     else:
         st.warning(
-            "Your 'foods' table is empty. Add a row in Supabase with columns: food_id and food_name."
+            "Your 'foods' table returned 0 rows. Please double-check that you have saved at least one row in the Supabase Table Editor."
         )
 
 except Exception as e:
-    # This will show us the EXACT column names if it fails again
-    st.error(f"Error: {e}")
-    if "food_query" in locals() and food_query.data:
-        st.write("Your actual columns are:", list(food_query.data[0].keys()))
+    st.error(f"Connection Error: {e}")
