@@ -421,19 +421,34 @@ with tab2:
 
                             s_c1, s_c2, _ = st.columns([1, 1, 4])
                             if s_c1.button("✅ Save", key=f"sv_{m_id}"):
-                                new_dt = datetime.combine(e_date, e_time).strftime(
-                                    "%Y-%m-%dT%H:%M:%S"
+                                # 1. Force the combination of date and time into a precise string
+                                # Using .replace(microsecond=0) ensures Supabase doesn't get confused
+                                combined_dt = datetime.combine(e_date, e_time).replace(
+                                    microsecond=0
                                 )
-                                up_data = {"date": new_dt, "notes": e_notes}
+                                new_dt_str = combined_dt.isoformat()
+
+                                # 2. Prepare the update payload
+                                up_data = {"date": new_dt_str, "notes": e_notes}
+
+                                # 3. Handle numeric values carefully
                                 if not pd.isna(row["weight_lb"]):
-                                    up_data["weight_lb"] = e_w
+                                    up_data["weight_lb"] = float(e_w)
                                 if not pd.isna(row["blood_glucose"]):
-                                    up_data["blood_glucose"] = e_g
-                                supabase.table("health_metrics").update(up_data).eq(
-                                    "metric_id", m_id
-                                ).execute()
-                                st.session_state.editing_id = None
-                                st.rerun()
+                                    up_data["blood_glucose"] = int(e_g)
+
+                                # 4. Execute the update
+                                try:
+                                    supabase.table("health_metrics").update(up_data).eq(
+                                        "metric_id", m_id
+                                    ).execute()
+                                    st.session_state.editing_id = None
+                                    st.success(
+                                        f"Updated to {new_dt_str}"
+                                    )  # Temporary visual confirmation
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Update failed: {e}")
                             if s_c2.button("Cancel", key=f"can_{m_id}"):
                                 st.session_state.editing_id = None
                                 st.rerun()
