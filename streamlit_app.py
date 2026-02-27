@@ -199,26 +199,22 @@ with tab1:
                 ).execute()
                 st.rerun()
 
-# --- TAB 2: HEALTH METRICS (FULL INDEPENDENT RESTORED) ---
+# --- TAB 2: HEALTH METRICS (STABLE DEV BUILD) ---
 with tab2:
     st.subheader("➕ Log New Measurement")
     col_bp, col_wt, col_gl = st.columns(3)
 
+    # Forms (BP, Weight, Glucose)
     with col_bp:
         with st.expander("❤️ Blood Pressure", expanded=True):
-            bp_ts = st.datetime_input("BP Time", datetime.now(), key="bp_ts")
-            sys = st.number_input(
-                "Systolic", min_value=0, max_value=300, value=120, key="sys_in"
-            )
-            dia = st.number_input(
-                "Diastolic", min_value=0, max_value=200, value=80, key="dia_in"
-            )
+            bp_ts = st.date_input("BP Date", datetime.now().date(), key="bp_ts")
+            sys = st.number_input("Systolic", 0, 300, 120, key="sys_in")
+            dia = st.number_input("Diastolic", 0, 200, 80, key="dia_in")
             bp_notes = st.text_input("BP Notes", key="bp_notes")
             if st.button("Log BP"):
                 supabase.table("health_metrics").insert(
                     {
-                        "date": str(bp_ts.date()),
-                        "created_at": bp_ts.isoformat(),
+                        "date": str(bp_ts),
                         "blood_pressure_systolic": sys,
                         "blood_pressure_diastolic": dia,
                         "notes": bp_notes,
@@ -228,57 +224,41 @@ with tab2:
 
     with col_wt:
         with st.expander("⚖️ Weight", expanded=True):
-            wt_ts = st.datetime_input("Weight Time", datetime.now(), key="wt_ts")
-            weight = st.number_input(
-                "Weight (lbs)",
-                min_value=0.0,
-                max_value=1000.0,
-                value=180.0,
-                key="wt_in",
-            )
+            wt_ts = st.date_input("Weight Date", datetime.now().date(), key="wt_ts")
+            weight = st.number_input("Weight (lbs)", 0.0, 1000.0, 180.0, key="wt_in")
             wt_notes = st.text_input("Weight Notes", key="wt_notes")
             if st.button("Log Weight"):
                 supabase.table("health_metrics").insert(
-                    {
-                        "date": str(wt_ts.date()),
-                        "created_at": wt_ts.isoformat(),
-                        "weight_lb": weight,
-                        "notes": wt_notes,
-                    }
+                    {"date": str(wt_ts), "weight_lb": weight, "notes": wt_notes}
                 ).execute()
                 st.rerun()
 
     with col_gl:
         with st.expander("🩸 Glucose", expanded=True):
-            gl_ts = st.datetime_input("Glucose Time", datetime.now(), key="gl_ts")
-            glu = st.number_input(
-                "Glucose (mg/dL)", min_value=0, max_value=1000, value=100, key="glu_in"
-            )
+            gl_ts = st.date_input("Glucose Date", datetime.now().date(), key="gl_ts")
+            glu = st.number_input("Glucose (mg/dL)", 0, 1000, 100, key="glu_in")
             gl_notes = st.text_input("Glucose Notes", key="gl_notes")
             if st.button("Log Glucose"):
                 supabase.table("health_metrics").insert(
-                    {
-                        "date": str(gl_ts.date()),
-                        "created_at": gl_ts.isoformat(),
-                        "blood_glucose": glu,
-                        "notes": gl_notes,
-                    }
+                    {"date": str(gl_ts), "blood_glucose": glu, "notes": gl_notes}
                 ).execute()
                 st.rerun()
 
     st.divider()
-    st.divider()
+
     try:
-        all_v = (
+        # Fetch data ordered by date
+        res = (
             supabase.table("health_metrics")
             .select("*")
-            .order("created_at", desc=False)
+            .order("date", desc=False)
             .execute()
         )
-        if all_v.data:
-            df_v = pd.DataFrame(all_v.data)
 
-            # --- LATEST METRICS LOGIC ---
+        if res.data:
+            df_v = pd.DataFrame(res.data)
+
+            # Latest Metrics Logic
             def get_latest(col):
                 valid = df_v.dropna(subset=[col])
                 return valid.iloc[-1] if not valid.empty else None
@@ -295,91 +275,61 @@ with tab2:
                     "Latest BP",
                     f"{int(l_bp['blood_pressure_systolic'])}/{int(l_bp['blood_pressure_diastolic'])}",
                 )
-                if l_bp["notes"]:
+                if l_bp.get("notes"):
                     m1.caption(f"📝 {l_bp['notes']}")
             if l_gl is not None:
                 m2.metric("Latest Glucose", f"{int(l_gl['blood_glucose'])} mg/dL")
-                if l_gl["notes"]:
+                if l_gl.get("notes"):
                     m2.caption(f"📝 {l_gl['notes']}")
             if l_wt is not None:
                 m3.metric("Latest Weight", f"{l_wt['weight_lb']} lbs")
-                if l_wt["notes"]:
+                if l_wt.get("notes"):
                     m3.caption(f"📝 {l_wt['notes']}")
 
             st.divider()
 
-            # --- TREND CHARTS ---
-            df_v["Target Weight"], df_v["Target Glucose"], df_v["Target BP"] = (
-                TARGET_WEIGHT,
-                TARGET_GLUCOSE,
-                TARGET_BP_SYS,
-            )
-            t1, t2 = st.columns(2)
-            with t1:
-                st.write("**Weight History**")
-                st.line_chart(
-                    df_v.dropna(subset=["weight_lb"]),
-                    x="created_at",
-                    y=["weight_lb", "Target Weight"],
-                    color=["#3498db", C_GRAY],
-                )
-            with t2:
-                st.write("**Glucose History**")
-                st.line_chart(
-                    df_v.dropna(subset=["blood_glucose"]),
-                    x="created_at",
-                    y=["blood_glucose", "Target Glucose"],
-                    color=["#f1c40f", C_GRAY],
-                )
-
-            st.write("**Blood Pressure History**")
+            # Trends (Fallback to 'date' if 'created_at' isn't fully ready)
+            st.write("**Health Trends**")
+            chart_x = "created_at" if "created_at" in df_v.columns else "date"
             st.line_chart(
-                df_v.dropna(subset=["blood_pressure_systolic"]),
-                x="created_at",
-                y=["blood_pressure_systolic", "blood_pressure_diastolic", "Target BP"],
-                color=["#e74c3c", "#95a5a6", C_GRAY],
+                df_v.dropna(subset=["weight_lb"]),
+                x=chart_x,
+                y="weight_lb",
+                color="#3498db",
             )
 
-            # --- NEW: DELETE/EDIT SECTION ---
+            # --- MANAGE ENTRIES (THE "OOPS" BUTTON) ---
             st.divider()
             with st.expander("🗑️ Manage Recent Entries"):
-                # Show last 10 entries for management
-                recent_vitals = df_v.sort_values("created_at", ascending=False).head(10)
+                # Sort descending to see newest at top
+                recent = df_v.sort_values("date", ascending=False).head(10)
 
-                for _, row in recent_vitals.iterrows():
-                    c1, c2, c3, c4 = st.columns([2, 3, 3, 1])
+                for _, row in recent.iterrows():
+                    c1, c2, c3 = st.columns([2, 5, 1])
+                    c1.write(f"**{row['date']}**")
 
-                    # Format the date for display
-                    dt_display = datetime.fromisoformat(row["created_at"]).strftime(
-                        "%b %d, %H:%M"
-                    )
-                    c1.write(f"**{dt_display}**")
+                    # Construct a clear summary of what's in this row
+                    details = []
+                    if not pd.isna(row.get("blood_pressure_systolic")):
+                        details.append(f"BP: {int(row['blood_pressure_systolic'])}/...")
+                    if not pd.isna(row.get("blood_glucose")):
+                        details.append(f"Glu: {int(row['blood_glucose'])}")
+                    if not pd.isna(row.get("weight_lb")):
+                        details.append(f"{row['weight_lb']} lbs")
 
-                    # Determine what was logged in this row
-                    log_content = []
-                    if not pd.isna(row["blood_pressure_systolic"]):
-                        log_content.append(
-                            f"BP: {int(row['blood_pressure_systolic'])}/{int(row['blood_pressure_diastolic'])}"
-                        )
-                    if not pd.isna(row["blood_glucose"]):
-                        log_content.append(f"Gluc: {int(row['blood_glucose'])}")
-                    if not pd.isna(row["weight_lb"]):
-                        log_content.append(f"Wt: {row['weight_lb']}")
+                    summary = " | ".join(details)
+                    notes = f" ({row['notes']})" if row.get("notes") else ""
+                    c2.write(f"{summary}{notes}")
 
-                    c2.write(", ".join(log_content))
-                    c3.write(f"*{row['notes'] or ''}*")
-
-                    # Delete Button
-                    if c4.button(
-                        "🗑️", key=f"del_v_{row['id']}"
-                    ):  # Assuming your table has 'id'
+                    # DELETE BUTTON: Using metric_id as Primary Key
+                    if c3.button("🗑️", key=f"del_{row['metric_id']}"):
                         supabase.table("health_metrics").delete().eq(
-                            "id", row["id"]
+                            "metric_id", row["metric_id"]
                         ).execute()
                         st.rerun()
 
     except Exception as e:
-        st.info(f"No vitals data found or error: {e}")
+        st.info(f"Log vitals to see history. (Error: {e})")
 
 # --- TAB 3: ACTIVITY (UI SWAP FIX) ---
 with tab3:
