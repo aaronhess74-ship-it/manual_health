@@ -28,6 +28,7 @@ tab1, tab2, tab3, tab4 = st.tabs(
     ["🍴 Nutrition", "🩺 Health Metrics", "🏃 Activity", "📊 Reports & Exports"]
 )
 
+# --- TAB 1: NUTRITION ---
 import pandas as pd
 import altair as alt
 from datetime import datetime
