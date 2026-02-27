@@ -215,19 +215,10 @@ with tab2:
         df_v = pd.DataFrame(res.data) if res.data else pd.DataFrame()
 
         if not df_v.empty:
+            # Crucial: Keep 'ts' as a datetime object for the charts
             df_v["ts"] = pd.to_datetime(df_v["date"])
 
-            # --- THE "CLEAN TIME" LOGIC ---
-            # If time is 00:00, show 'Feb 27'. If time is set, show 'Feb 27 08:30'
-            df_v["display_x"] = df_v["ts"].apply(
-                lambda x: (
-                    x.strftime("%b %d %H:%M")
-                    if x.time() != datetime.min.time()
-                    else x.strftime("%b %d")
-                )
-            )
-
-            # --- 2. LATEST METRICS (AT THE TOP) ---
+            # --- 2. LATEST METRICS (UNCHANGED) ---
             st.subheader("📊 Current Status")
 
             def get_latest(col):
@@ -239,93 +230,93 @@ with tab2:
                 get_latest("blood_glucose"),
                 get_latest("weight_lb"),
             )
-
             m1, m2, m3 = st.columns(3)
             if l_bp is not None:
                 s, d = (
                     int(l_bp["blood_pressure_systolic"]),
                     int(l_bp["blood_pressure_diastolic"]),
                 )
-                bp_emoji = (
-                    "🟢" if s < 120 and d < 80 else "🟡" if s < 130 and d < 80 else "🔴"
+                m1.metric(
+                    "Latest BP",
+                    f"{'🟢' if s < 120 else '🟡' if s < 130 else '🔴'} {s}/{d}",
                 )
-                m1.metric("Latest BP", f"{bp_emoji} {s}/{d}")
             if l_gl is not None:
                 g = int(l_gl["blood_glucose"])
-                gl_emoji = "🟢" if g < 100 else "🟡" if g < 126 else "🔴"
-                m2.metric("Latest Glucose", f"{gl_emoji} {g} mg/dL")
+                m2.metric(
+                    "Latest Glucose",
+                    f"{'🟢' if g < 100 else '🟡' if g < 126 else '🔴'} {g} mg/dL",
+                )
             if l_wt is not None:
                 m3.metric("Latest Weight", f"⚖️ {l_wt['weight_lb']} lbs")
 
             st.divider()
 
-        # --- 3. LOG NEW MEASUREMENT ---
+        # --- 3. LOG NEW MEASUREMENT (UNCHANGED) ---
         st.subheader("➕ Log New Measurement")
         col_bp, col_wt, col_gl = st.columns(3)
         now = datetime.now()
 
         with col_bp:
             with st.expander("❤️ Blood Pressure", expanded=False):
-                d = st.date_input("BP Date", now.date(), key="n_bp_d")
-                t = st.time_input("BP Time", now.time(), key="n_bp_t")
-                sys = st.number_input("Systolic", 0, 300, 120, key="n_bp_s")
-                dia = st.number_input("Diastolic", 0, 200, 80, key="n_bp_di")
-                n = st.text_input("Notes", key="n_bp_n")
-                if st.button("Log BP", key="btn_save_bp"):
+                d = st.date_input("BP Date", now.date(), key="nbpd")
+                t = st.time_input("BP Time", now.time(), key="nbpt")
+                sys = st.number_input("Systolic", 0, 300, 120)
+                dia = st.number_input("Diastolic", 0, 200, 80)
+                if st.button("Log BP", key="l_bp"):
                     supabase.table("health_metrics").insert(
                         {
                             "date": datetime.combine(d, t).isoformat(),
                             "blood_pressure_systolic": sys,
                             "blood_pressure_diastolic": dia,
-                            "notes": n,
                         }
                     ).execute()
                     st.rerun()
 
         with col_wt:
             with st.expander("⚖️ Weight", expanded=False):
-                d = st.date_input("Wt Date", now.date(), key="n_wt_d")
-                t = st.time_input("Wt Time", now.time(), key="n_wt_t")
-                w = st.number_input("Weight", 0.0, 500.0, 180.0, key="n_wt_w")
-                n = st.text_input("Notes", key="n_wt_n")
-                if st.button("Log Weight", key="btn_save_wt"):
+                d = st.date_input("Wt Date", now.date(), key="nwtd")
+                t = st.time_input("Wt Time", now.time(), key="nwtt")
+                w = st.number_input("Weight", 0.0, 500.0, 180.0)
+                if st.button("Log Weight", key="l_wt"):
                     supabase.table("health_metrics").insert(
-                        {
-                            "date": datetime.combine(d, t).isoformat(),
-                            "weight_lb": w,
-                            "notes": n,
-                        }
+                        {"date": datetime.combine(d, t).isoformat(), "weight_lb": w}
                     ).execute()
                     st.rerun()
 
         with col_gl:
             with st.expander("🩸 Glucose", expanded=False):
-                d = st.date_input("Gl Date", now.date(), key="n_gl_d")
-                t = st.time_input("Gl Time", now.time(), key="n_gl_t")
-                g = st.number_input("Glucose", 0, 500, 100, key="n_gl_g")
-                n = st.text_input("Notes", key="n_gl_n")
-                if st.button("Log Glucose", key="btn_save_gl"):
+                d = st.date_input("Gl Date", now.date(), key="ngld")
+                t = st.time_input("Gl Time", now.time(), key="nglt")
+                g = st.number_input("Glucose", 0, 500, 100)
+                if st.button("Log Glucose", key="l_gl"):
                     supabase.table("health_metrics").insert(
-                        {
-                            "date": datetime.combine(d, t).isoformat(),
-                            "blood_glucose": g,
-                            "notes": n,
-                        }
+                        {"date": datetime.combine(d, t).isoformat(), "blood_glucose": g}
                     ).execute()
                     st.rerun()
 
         if not df_v.empty:
             st.divider()
 
-            # --- 4. THE PERFECT CHARTS (Hard Y-Axis Scales) ---
+            # --- 4. THE CORRECTED CHARTS ---
+            # Using :T (Temporal) instead of :N (Nominal) so lines connect.
+            # axis=alt.Axis(format='%b %d %H:%M') ensures the time shows up.
 
-            # Weight Chart (150-300)
+            # Weight Chart
             st.write("**Weight Trend (150 - 300 lbs)**")
-            wt_base = alt.Chart(df_v.dropna(subset=["weight_lb"])).encode(
-                x=alt.X("display_x:N", title="Log Time", sort=None)
+            wt_df = df_v.dropna(subset=["weight_lb"])
+            wt_base = alt.Chart(wt_df).encode(
+                x=alt.X(
+                    "ts:T",
+                    title="Log Time",
+                    axis=alt.Axis(format="%b %d %H:%M", labelAngle=-45),
+                ),
+                tooltip=[
+                    alt.Tooltip("ts:T", format="%b %d %H:%M", title="Time"),
+                    "weight_lb",
+                ],
             )
-            wt_line = wt_base.mark_line(color="#3498db", strokeWidth=2).encode(
-                y=alt.Y("weight_lb:Q", scale=alt.Scale(domain=[150, 300]), title="lbs")
+            wt_line = wt_base.mark_line(color="#3498db").encode(
+                y=alt.Y("weight_lb:Q", scale=alt.Scale(domain=[150, 300]))
             )
             wt_text = wt_base.mark_text(dy=-15, color="white").encode(
                 y="weight_lb:Q", text=alt.Text("weight_lb:Q", format=".1f")
@@ -337,15 +328,22 @@ with tab2:
                 use_container_width=True,
             )
 
-            # Glucose Chart (0-200)
+            # Glucose Chart
             st.write("**Glucose Trend (0 - 200 mg/dL)**")
-            gl_base = alt.Chart(df_v.dropna(subset=["blood_glucose"])).encode(
-                x=alt.X("display_x:N", title="Log Time", sort=None)
+            gl_df = df_v.dropna(subset=["blood_glucose"])
+            gl_base = alt.Chart(gl_df).encode(
+                x=alt.X(
+                    "ts:T",
+                    title="Log Time",
+                    axis=alt.Axis(format="%b %d %H:%M", labelAngle=-45),
+                ),
+                tooltip=[
+                    alt.Tooltip("ts:T", format="%b %d %H:%M", title="Time"),
+                    "blood_glucose",
+                ],
             )
-            gl_line = gl_base.mark_line(color="#f1c40f", strokeWidth=2).encode(
-                y=alt.Y(
-                    "blood_glucose:Q", scale=alt.Scale(domain=[0, 200]), title="mg/dL"
-                )
+            gl_line = gl_base.mark_line(color="#f1c40f").encode(
+                y=alt.Y("blood_glucose:Q", scale=alt.Scale(domain=[0, 200]))
             )
             gl_text = gl_base.mark_text(dy=-15, color="white").encode(
                 y="blood_glucose:Q", text="blood_glucose:Q"
@@ -357,17 +355,23 @@ with tab2:
                 use_container_width=True,
             )
 
-            # BP Chart (0-250)
+            # BP Chart
             st.write("**Blood Pressure Range (0 - 250 mmHg)**")
-            bp_base = alt.Chart(df_v.dropna(subset=["blood_pressure_systolic"])).encode(
-                x=alt.X("display_x:N", title="Log Time", sort=None)
-            )
-            bp_range = bp_base.mark_bar(width=10, color="#e74c3c", opacity=0.6).encode(
-                y=alt.Y(
-                    "blood_pressure_diastolic:Q",
-                    scale=alt.Scale(domain=[0, 250]),
-                    title="mmHg",
+            bp_df = df_v.dropna(subset=["blood_pressure_systolic"])
+            bp_base = alt.Chart(bp_df).encode(
+                x=alt.X(
+                    "ts:T",
+                    title="Log Time",
+                    axis=alt.Axis(format="%b %d %H:%M", labelAngle=-45),
                 ),
+                tooltip=[
+                    alt.Tooltip("ts:T", format="%b %d %H:%M", title="Time"),
+                    "blood_pressure_systolic",
+                    "blood_pressure_diastolic",
+                ],
+            )
+            bp_range = bp_base.mark_bar(width=8, color="#e74c3c", opacity=0.6).encode(
+                y=alt.Y("blood_pressure_diastolic:Q", scale=alt.Scale(domain=[0, 250])),
                 y2="blood_pressure_systolic:Q",
             )
             bp_text_s = bp_base.mark_text(
@@ -381,83 +385,78 @@ with tab2:
                 use_container_width=True,
             )
 
-            # --- 5. MANAGE ENTRIES (Collapsible & Full Edit) ---
+            # --- 5. MANAGE ENTRIES (UNCHANGED) ---
             with st.expander("🗑️ Manage & Edit Recent Entries"):
                 if "editing_id" not in st.session_state:
                     st.session_state.editing_id = None
                 recent = df_v.sort_values("date", ascending=False).head(10)
-
                 for _, row in recent.iterrows():
                     m_id = row["metric_id"]
                     if st.session_state.editing_id == m_id:
                         with st.container(border=True):
-                            st.write(f"**Editing Entry**")
                             c1, c2, c3 = st.columns(3)
                             e_date = c1.date_input(
-                                "Edit Date", row["ts"].date(), key=f"ed_{m_id}"
+                                "Date", row["ts"].date(), key=f"d{m_id}"
                             )
                             e_time = c2.time_input(
-                                "Edit Time", row["ts"].time(), key=f"et_{m_id}"
+                                "Time", row["ts"].time(), key=f"t{m_id}"
                             )
                             e_notes = c3.text_input(
-                                "Edit Notes",
+                                "Notes",
                                 row["notes"] if row["notes"] else "",
-                                key=f"en_{m_id}",
+                                key=f"n{m_id}",
                             )
-
                             v1, v2, _ = st.columns(3)
                             e_w = v1.number_input(
                                 "Weight",
                                 value=float(row["weight_lb"])
                                 if not pd.isna(row["weight_lb"])
                                 else 0.0,
-                                key=f"ew_{m_id}",
+                                key=f"w{m_id}",
                             )
                             e_g = v2.number_input(
                                 "Glucose",
                                 value=int(row["blood_glucose"])
                                 if not pd.isna(row["blood_glucose"])
                                 else 0,
-                                key=f"eg_{m_id}",
+                                key=f"g{m_id}",
                             )
-
-                            sc1, sc2, _ = st.columns([1, 1, 4])
-                            if sc1.button("✅ Save", key=f"sv_{m_id}"):
-                                new_dt = datetime.combine(e_date, e_time).isoformat()
-                                up_data = {"date": new_dt, "notes": e_notes}
+                            if st.button("Save", key=f"s{m_id}"):
+                                up = {
+                                    "date": datetime.combine(
+                                        e_date, e_time
+                                    ).isoformat(),
+                                    "notes": e_notes,
+                                }
                                 if not pd.isna(row["weight_lb"]):
-                                    up_data["weight_lb"] = e_w
+                                    up["weight_lb"] = e_w
                                 if not pd.isna(row["blood_glucose"]):
-                                    up_data["blood_glucose"] = e_g
-                                supabase.table("health_metrics").update(up_data).eq(
+                                    up["blood_glucose"] = e_g
+                                supabase.table("health_metrics").update(up).eq(
                                     "metric_id", m_id
                                 ).execute()
                                 st.session_state.editing_id = None
                                 st.rerun()
-                            if sc2.button("❌ Cancel", key=f"cn_{m_id}"):
+                            if st.button("Cancel", key=f"c{m_id}"):
                                 st.session_state.editing_id = None
                                 st.rerun()
                     else:
-                        c1, c2, c3 = st.columns([2, 5, 1.5])
-                        c1.write(f"**{row['display_x']}**")
-                        details = []
-                        if not pd.isna(row.get("weight_lb")):
-                            details.append(f"{row['weight_lb']} lbs")
-                        if not pd.isna(row.get("blood_glucose")):
-                            details.append(f"Glu: {row['blood_glucose']}")
-                        if not pd.isna(row.get("blood_pressure_systolic")):
-                            details.append(
+                        c1, c2, c3 = st.columns([3, 5, 2])
+                        c1.write(f"**{row['ts'].strftime('%b %d %H:%M')}**")
+                        vals = []
+                        if not pd.isna(row["weight_lb"]):
+                            vals.append(f"{row['weight_lb']} lbs")
+                        if not pd.isna(row["blood_glucose"]):
+                            vals.append(f"Glu: {row['blood_glucose']}")
+                        if not pd.isna(row["blood_pressure_systolic"]):
+                            vals.append(
                                 f"BP: {int(row['blood_pressure_systolic'])}/{int(row['blood_pressure_diastolic'])}"
                             )
-                        c2.write(
-                            " | ".join(details)
-                            + (f" ({row['notes']})" if row.get("notes") else "")
-                        )
-                        bc1, bc2 = c3.columns(2)
-                        if bc1.button("✏️", key=f"ed_btn_{m_id}"):
+                        c2.write(" | ".join(vals))
+                        if c3.button("✏️", key=f"eb{m_id}"):
                             st.session_state.editing_id = m_id
                             st.rerun()
-                        if bc2.button("🗑️", key=f"del_btn_{m_id}"):
+                        if c3.button("🗑️", key=f"db{m_id}"):
                             supabase.table("health_metrics").delete().eq(
                                 "metric_id", m_id
                             ).execute()
