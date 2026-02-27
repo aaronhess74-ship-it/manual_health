@@ -249,27 +249,27 @@ with tab2:
                     int(l_bp["blood_pressure_systolic"]),
                     int(l_bp["blood_pressure_diastolic"]),
                 )
-                m1.metric(
-                    "Latest BP",
-                    f"{'🟢' if s < 120 else '🟡' if s < 130 else '🔴'} {s}/{d}",
+                # This keeps your color coding logic
+                bp_emoji = (
+                    "🟢" if s < 120 and d < 80 else "🟡" if s < 130 and d < 80 else "🔴"
                 )
-                m1.caption(
-                    f"🕒 {l_bp['ts'].strftime('%H:%M') if l_bp['ts'].time() != datetime.min.time() else 'No Time'}"
-                )
+                m1.metric("Latest BP", f"{bp_emoji} {s}/{d}")
+                # This is the updated caption that shows the time
+                m1.caption(f"Logged: {l_bp['ts'].strftime('%b %d at %H:%M')}")
+
             if l_gl is not None:
                 g = int(l_gl["blood_glucose"])
-                m2.metric(
-                    "Latest Glucose",
-                    f"{'🟢' if g < 100 else '🟡' if g < 126 else '🔴'} {g} mg/dL",
-                )
-                m2.caption(
-                    f"🕒 {l_gl['ts'].strftime('%H:%M') if l_gl['ts'].time() != datetime.min.time() else 'No Time'}"
-                )
+                # This keeps your color coding logic
+                gl_emoji = "🟢" if g < 100 else "🟡" if g < 126 else "🔴"
+                m2.metric("Latest Glucose", f"{gl_emoji} {g} mg/dL")
+                # This is the updated caption that shows the time
+                m2.caption(f"Logged: {l_gl['ts'].strftime('%b %d at %H:%M')}")
+
             if l_wt is not None:
+                # This keeps your weight logic
                 m3.metric("Latest Weight", f"⚖️ {l_wt['weight_lb']} lbs")
-                m3.caption(
-                    f"🕒 {l_wt['ts'].strftime('%H:%M') if l_wt['ts'].time() != datetime.min.time() else 'No Time'}"
-                )
+                # This is the updated caption that shows the time
+                m3.caption(f"Logged: {l_wt['ts'].strftime('%b %d at %H:%M')}")
 
             st.divider()
 
@@ -334,8 +334,8 @@ with tab2:
                 base = alt.Chart(chart_df).encode(
                     x=alt.X("chart_label:O", title="Entry Date | Time", sort=None),
                     tooltip=[
-                        alt.Tooltip("ts:T", format="%b %d %H:%M", title="Time"),
-                        alt.Tooltip(f"{y_col}:Q", title=title),
+                        alt.Tooltip("chart_label:N", title="Logged At"),
+                        alt.Tooltip(f"{y_col}:Q", title=f"{title} Value", format=".1f"),
                     ],
                 )
                 line = base.mark_line(color=color, strokeWidth=3).encode(
@@ -421,7 +421,9 @@ with tab2:
 
                             s_c1, s_c2, _ = st.columns([1, 1, 4])
                             if s_c1.button("✅ Save", key=f"sv_{m_id}"):
-                                new_dt = datetime.combine(e_date, e_time).isoformat()
+                                new_dt = datetime.combine(e_date, e_time).strftime(
+                                    "%Y-%m-%dT%H:%M:%S"
+                                )
                                 up_data = {"date": new_dt, "notes": e_notes}
                                 if not pd.isna(row["weight_lb"]):
                                     up_data["weight_lb"] = e_w
