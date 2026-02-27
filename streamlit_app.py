@@ -267,6 +267,7 @@ with tab2:
                 st.rerun()
 
     st.divider()
+    st.divider()
     try:
         all_v = (
             supabase.table("health_metrics")
@@ -277,6 +278,7 @@ with tab2:
         if all_v.data:
             df_v = pd.DataFrame(all_v.data)
 
+            # --- LATEST METRICS LOGIC ---
             def get_latest(col):
                 valid = df_v.dropna(subset=[col])
                 return valid.iloc[-1] if not valid.empty else None
@@ -286,6 +288,7 @@ with tab2:
                 get_latest("blood_glucose"),
                 get_latest("weight_lb"),
             )
+
             m1, m2, m3 = st.columns(3)
             if l_bp is not None:
                 m1.metric(
@@ -304,6 +307,8 @@ with tab2:
                     m3.caption(f"📝 {l_wt['notes']}")
 
             st.divider()
+
+            # --- TREND CHARTS ---
             df_v["Target Weight"], df_v["Target Glucose"], df_v["Target BP"] = (
                 TARGET_WEIGHT,
                 TARGET_GLUCOSE,
@@ -326,6 +331,7 @@ with tab2:
                     y=["blood_glucose", "Target Glucose"],
                     color=["#f1c40f", C_GRAY],
                 )
+
             st.write("**Blood Pressure History**")
             st.line_chart(
                 df_v.dropna(subset=["blood_pressure_systolic"]),
@@ -333,8 +339,47 @@ with tab2:
                 y=["blood_pressure_systolic", "blood_pressure_diastolic", "Target BP"],
                 color=["#e74c3c", "#95a5a6", C_GRAY],
             )
-    except:
-        st.info("No vitals data found.")
+
+            # --- NEW: DELETE/EDIT SECTION ---
+            st.divider()
+            with st.expander("🗑️ Manage Recent Entries"):
+                # Show last 10 entries for management
+                recent_vitals = df_v.sort_values("created_at", ascending=False).head(10)
+
+                for _, row in recent_vitals.iterrows():
+                    c1, c2, c3, c4 = st.columns([2, 3, 3, 1])
+
+                    # Format the date for display
+                    dt_display = datetime.fromisoformat(row["created_at"]).strftime(
+                        "%b %d, %H:%M"
+                    )
+                    c1.write(f"**{dt_display}**")
+
+                    # Determine what was logged in this row
+                    log_content = []
+                    if not pd.isna(row["blood_pressure_systolic"]):
+                        log_content.append(
+                            f"BP: {int(row['blood_pressure_systolic'])}/{int(row['blood_pressure_diastolic'])}"
+                        )
+                    if not pd.isna(row["blood_glucose"]):
+                        log_content.append(f"Gluc: {int(row['blood_glucose'])}")
+                    if not pd.isna(row["weight_lb"]):
+                        log_content.append(f"Wt: {row['weight_lb']}")
+
+                    c2.write(", ".join(log_content))
+                    c3.write(f"*{row['notes'] or ''}*")
+
+                    # Delete Button
+                    if c4.button(
+                        "🗑️", key=f"del_v_{row['id']}"
+                    ):  # Assuming your table has 'id'
+                        supabase.table("health_metrics").delete().eq(
+                            "id", row["id"]
+                        ).execute()
+                        st.rerun()
+
+    except Exception as e:
+        st.info(f"No vitals data found or error: {e}")
 
 # --- TAB 3: ACTIVITY (UI SWAP FIX) ---
 with tab3:
