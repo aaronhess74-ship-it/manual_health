@@ -29,196 +29,182 @@ tab1, tab2, tab3, tab4 = st.tabs(
 )
 
 # --- TAB 1: NUTRITION ---
+<<<<<<< HEAD
 import pandas as pd
 import altair as alt
 from datetime import datetime
 
+=======
+>>>>>>> parent of daab2a6 (adding time to food log)
 with tab1:
-    # --- 1. SET TARGETS ---
-    T_CAL, T_PRO, T_CHO, T_FAT = 2000, 150, 200, 70
-
-    # --- 2. DATA FETCHING ---
     try:
-        # Fetching nutrition logs (daily_logs)
-        res_n = (
+        response = supabase.table("daily_variance").select("*").execute()
+        if response.data:
+            latest = response.data[0]
+            st.subheader(f"Status for {latest['date']}")
+            c1, c2, c3, c4, c5 = st.columns(5)
+
+            cals = float(latest.get("total_calories", 0))
+            prot = float(latest.get("total_protein", 0))
+            net_c = float(latest.get("total_net_carbs", 0))
+            fat = float(latest.get("total_fat", 0))
+            fib = float(latest.get("total_fiber", 0))
+
+            def get_status_icon(curr, target, is_ceiling=True):
+                if is_ceiling:
+                    if curr > target:
+                        return "🔴 OVER"
+                    if curr >= (target * 0.90):
+                        return "🟡 NEAR"
+                    return "🟢 OK"
+                else:
+                    if curr >= target:
+                        return "🟢 GOAL"
+                    if curr >= (target * 0.90):
+                        return "🟡 LOW"
+                    return "🔴 URGENT"
+
+            c1.metric(
+                f"Calories {get_status_icon(cals, TARGET_CALORIES)}",
+                f"{int(cals)}",
+                f"{int(TARGET_CALORIES - cals)} Left",
+            )
+            c2.metric(
+                f"Protein {get_status_icon(prot, TARGET_PROTEIN, False)}",
+                f"{int(prot)}g",
+                f"{int(prot - TARGET_PROTEIN)} vs Target",
+            )
+            c3.metric(
+                f"Net Carbs {get_status_icon(net_c, TARGET_NET_CARBS)}",
+                f"{int(net_c)}g",
+                f"{int(TARGET_NET_CARBS - net_c)} Left",
+            )
+            c4.metric(
+                f"Total Fat {get_status_icon(fat, TARGET_FAT_MAX)}",
+                f"{int(fat)}g",
+                f"{int(TARGET_FAT_MAX - fat)} Left",
+            )
+            c5.metric(
+                f"Fiber {get_status_icon(fib, TARGET_FIBER_MIN, False)}",
+                f"{int(fib)}g",
+                f"{int(fib - TARGET_FIBER_MIN)} vs Target",
+            )
+    except Exception as e:
+        st.error(f"Daily summary error: {e}")
+
+    st.divider()
+    st.subheader("⚡ Quick Log")
+    try:
+        recent_res = (
             supabase.table("daily_logs")
-            .select("*")
-            .order("log_date", desc=False)
+            .select("food_id, foods(food_name)")
+            .order("log_id", desc=True)
+            .limit(30)
             .execute()
         )
-        df_n = pd.DataFrame(res_n.data) if res_n.data else pd.DataFrame()
+        if recent_res.data:
+            seen = set()
+            quick_foods = []
+            for r in recent_res.data:
+                if r["foods"] and r["food_id"] not in seen:
+                    quick_foods.append(
+                        {"id": r["food_id"], "name": r["foods"]["food_name"]}
+                    )
+                    seen.add(r["food_id"])
+                if len(quick_foods) >= 5:
+                    break
+            if quick_foods:
+                cols = st.columns(len(quick_foods))
+                for i, f in enumerate(quick_foods):
+                    if cols[i].button(f"➕ {f['name']}", key=f"q_{f['id']}"):
+                        supabase.table("daily_logs").insert(
+                            {
+                                "food_id": f["id"],
+                                "servings": 1.0,
+                                "log_date": str(datetime.now().date()),
+                            }
+                        ).execute()
+                        st.rerun()
+    except:
+        pass
 
-        if not df_n.empty:
-            # Merge Date and Time (matching our Health Metrics logic)
-            df_n["ts"] = pd.to_datetime(
-                df_n["log_date"].astype(str)
-                + " "
-                + df_n.get("log_time", "00:00:00").fillna("00:00:00").astype(str)
+    st.divider()
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.subheader("🍴 Log Existing")
+        f_query = supabase.table("foods").select("*").order("food_name").execute()
+        if f_query.data:
+            f_dict = {f["food_name"]: f for f in f_query.data}
+            sel = st.selectbox(
+                "Search Food Library...", options=list(f_dict.keys()), index=None
             )
-
-            # --- 3. DAILY SUMMARY (TODAY) ---
-            today_str = datetime.now().strftime("%Y-%m-%d")
-            today_df = df_n[df_n["log_date"].astype(str) == today_str]
-
-            s_cal = today_df["calories"].sum()
-            s_pro = today_df["protein"].sum()
-            s_cho = today_df["carbs"].sum()
-            s_fat = today_df["fat"].sum()
-
-            st.subheader(f"🍳 Today's Progress ({datetime.now().strftime('%b %d')})")
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric(
-                "Calories",
-                f"{int(s_cal)}",
-                f"{int(s_cal - T_CAL)} vs Goal",
-                delta_color="inverse",
-            )
-            c2.metric("Protein", f"{int(s_pro)}g", f"{int(s_pro - T_PRO)}g")
-            c3.metric("Carbs", f"{int(s_cho)}g", f"{int(s_cho - T_CHO)}g")
-            c4.metric("Fat", f"{int(s_fat)}g", f"{int(s_fat - T_FAT)}g")
-
-            # Simple Progress Bar
-            progress = min(s_cal / T_CAL, 1.0)
-            st.progress(progress, text=f"Calorie Intake: {int(progress * 100)}%")
-            st.divider()
-
-        # --- 4. LOG NEW MEAL ---
-        st.subheader("🍕 Log Meal")
-        with st.expander("Add New Entry", expanded=False):
-            with st.form("meal_form", clear_on_submit=True):
-                f1, f2 = st.columns(2)
-                d_meal = f1.date_input("Date", datetime.now().date())
-                t_meal = f2.time_input("Time", datetime.now().time())
-
-                meal_name = st.text_input("Meal Name (e.g., Chicken Salad)")
-
-                f3, f4, f5, f6 = st.columns(4)
-                cal = f3.number_input("Calories", 0, 3000, 500)
-                pro = f4.number_input("Protein (g)", 0, 300, 30)
-                cho = f5.number_input("Carbs (g)", 0, 500, 40)
-                fat = f6.number_input("Fat (g)", 0, 200, 15)
-
-                if st.form_submit_button("Log Entry"):
+            if sel:
+                food = f_dict[sel]
+                srv = st.number_input("Servings", min_value=0.0, value=1.0, step=0.1)
+                if st.button("Log Meal"):
                     supabase.table("daily_logs").insert(
                         {
-                            "log_date": d_meal.isoformat(),
-                            "log_time": t_meal.strftime("%H:%M:%S"),
-                            "meal_name": meal_name,
-                            "calories": cal,
-                            "protein": pro,
-                            "carbs": cho,
-                            "fat": fat,
+                            "food_id": food["food_id"],
+                            "servings": srv,
+                            "log_date": str(datetime.now().date()),
                         }
                     ).execute()
                     st.rerun()
 
-        # --- 5. NUTRITION TRENDS ---
-        if not df_n.empty:
-            st.subheader("📈 Consumption Trends")
-            # Aggregate by day for the chart
-            daily_agg = (
-                df_n.groupby("log_date")
-                .agg({"calories": "sum", "protein": "sum"})
-                .reset_index()
+    with col_b:
+        st.subheader("🆕 New Food")
+        with st.form("new_f", clear_on_submit=True):
+            n_name = st.text_input("Name")
+            c_c, c_p, c_cb = st.columns(3)
+            nc, np, ncb = (
+                c_c.number_input("Cal", 0),
+                c_p.number_input("Prot", 0),
+                c_cb.number_input("Carb", 0),
             )
+            nf, nfi = st.number_input("Fat", 0), st.number_input("Fib", 0)
+            if st.form_submit_button("Save & Log"):
+                if n_name:
+                    res = (
+                        supabase.table("foods")
+                        .insert(
+                            {
+                                "food_name": n_name,
+                                "calories": nc,
+                                "protein_g": np,
+                                "carbs_g": ncb,
+                                "fat_g": nf,
+                                "fiber_g": nfi,
+                            }
+                        )
+                        .execute()
+                    )
+                    if res.data:
+                        supabase.table("daily_logs").insert(
+                            {
+                                "food_id": res.data[0]["food_id"],
+                                "servings": 1.0,
+                                "log_date": str(datetime.now().date()),
+                            }
+                        ).execute()
+                        st.rerun()
 
-            cal_chart = (
-                alt.Chart(daily_agg)
-                .mark_area(
-                    line={"color": "#2ecc71"},
-                    color=alt.Gradient(
-                        gradient="linear",
-                        stops=[
-                            alt.GradientStop(color="#2ecc71", offset=0),
-                            alt.GradientStop(color="transparent", offset=1),
-                        ],
-                        x1=1,
-                        x2=1,
-                        y1=1,
-                        y2=0,
-                    ),
-                )
-                .encode(
-                    x=alt.X("log_date:T", title="Date"),
-                    y=alt.Y("calories:Q", title="Total Calories"),
-                    tooltip=["log_date", "calories"],
-                )
-                .properties(height=250)
-            )
-
-            st.altair_chart(cal_chart, use_container_width=True)
-
-            # --- 6. MANAGE LOGS (Edit/Delete) ---
-            with st.expander("🗑️ Manage Recent Meals"):
-                if "edit_n_id" not in st.session_state:
-                    st.session_state.edit_n_id = None
-                recent_n = df_n.sort_values("ts", ascending=False).head(10)
-
-                for _, row in recent_n.iterrows():
-                    l_id = row["log_id"]
-                    if st.session_state.edit_n_id == l_id:
-                        with st.container(border=True):
-                            st.write(f"**Editing: {row['meal_name']}**")
-                            # Reuse same layout as health metrics for consistency
-                            nc1, nc2, nc3 = st.columns(3)
-                            n_date = nc1.date_input(
-                                "Date", row["ts"].date(), key=f"nd_{l_id}"
-                            )
-                            n_time = nc2.time_input(
-                                "Time", row["ts"].time(), key=f"nt_{l_id}"
-                            )
-                            n_name = nc3.text_input(
-                                "Name", row["meal_name"], key=f"nn_{l_id}"
-                            )
-
-                            mc1, mc2, mc3, mc4 = st.columns(4)
-                            n_cal = mc1.number_input(
-                                "Cal", value=int(row["calories"]), key=f"nc_{l_id}"
-                            )
-                            n_pro = mc2.number_input(
-                                "Pro", value=int(row["protein"]), key=f"np_{l_id}"
-                            )
-                            n_cho = mc3.number_input(
-                                "Cho", value=int(row["carbs"]), key=f"nh_{l_id}"
-                            )
-                            n_fat = mc4.number_input(
-                                "Fat", value=int(row["fat"]), key=f"nf_{l_id}"
-                            )
-
-                            sc1, sc2, _ = st.columns([1, 1, 4])
-                            if sc1.button("✅ Save", key=f"nsv_{l_id}"):
-                                supabase.table("daily_logs").update(
-                                    {
-                                        "log_date": n_date.isoformat(),
-                                        "log_time": n_time.strftime("%H:%M:%S"),
-                                        "meal_name": n_name,
-                                        "calories": n_cal,
-                                        "protein": n_pro,
-                                        "carbs": n_cho,
-                                        "fat": n_fat,
-                                    }
-                                ).eq("log_id", l_id).execute()
-                                st.session_state.edit_n_id = None
-                                st.rerun()
-                            if sc2.button("Cancel", key=f"ncn_{l_id}"):
-                                st.session_state.edit_n_id = None
-                                st.rerun()
-                    else:
-                        r1, r2, r3 = st.columns([3, 5, 2])
-                        r1.write(f"**{row['ts'].strftime('%b %d | %H:%M')}**")
-                        r2.write(f"{row['meal_name']} ({int(row['calories'])} cal)")
-                        eb1, eb2 = r3.columns(2)
-                        if eb1.button("✏️", key=f"ned_{l_id}"):
-                            st.session_state.edit_n_id = l_id
-                            st.rerun()
-                        if eb2.button("🗑️", key=f"ndl_{l_id}"):
-                            supabase.table("daily_logs").delete().eq(
-                                "log_id", l_id
-                            ).execute()
-                            st.rerun()
-
-    except Exception as e:
-        st.error(f"Nutrition Tab Error: {e}")
+    st.subheader("📜 Today's History")
+    h_res = (
+        supabase.table("daily_logs")
+        .select("log_id, servings, foods(food_name, calories)")
+        .eq("log_date", str(datetime.now().date()))
+        .execute()
+    )
+    if h_res.data:
+        for item in h_res.data:
+            hc1, hc2, hc3 = st.columns([3, 1, 1])
+            hc1.write(f"**{item['foods']['food_name']}**")
+            hc2.write(f"{int(item['foods']['calories'] * item['servings'])} cal")
+            if hc3.button("🗑️", key=f"del_{item['log_id']}"):
+                supabase.table("daily_logs").delete().eq(
+                    "log_id", item["log_id"]
+                ).execute()
+                st.rerun()
 
 # --- TAB 2: HEALTH METRICS ---
 import altair as alt
