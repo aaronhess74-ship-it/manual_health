@@ -200,54 +200,23 @@ with tab1:
                 st.rerun()
 
 # --- TAB 2: HEALTH METRICS (STABLE DEV BUILD) ---
+# --- TAB 2: HEALTH METRICS (WITH FILTERS) ---
 with tab2:
     st.subheader("➕ Log New Measurement")
-    col_bp, col_wt, col_gl = st.columns(3)
-
-    # Forms (BP, Weight, Glucose)
-    with col_bp:
-        with st.expander("❤️ Blood Pressure", expanded=True):
-            bp_ts = st.date_input("BP Date", datetime.now().date(), key="bp_ts")
-            sys = st.number_input("Systolic", 0, 300, 120, key="sys_in")
-            dia = st.number_input("Diastolic", 0, 200, 80, key="dia_in")
-            bp_notes = st.text_input("BP Notes", key="bp_notes")
-            if st.button("Log BP"):
-                supabase.table("health_metrics").insert(
-                    {
-                        "date": str(bp_ts),
-                        "blood_pressure_systolic": sys,
-                        "blood_pressure_diastolic": dia,
-                        "notes": bp_notes,
-                    }
-                ).execute()
-                st.rerun()
-
-    with col_wt:
-        with st.expander("⚖️ Weight", expanded=True):
-            wt_ts = st.date_input("Weight Date", datetime.now().date(), key="wt_ts")
-            weight = st.number_input("Weight (lbs)", 0.0, 1000.0, 180.0, key="wt_in")
-            wt_notes = st.text_input("Weight Notes", key="wt_notes")
-            if st.button("Log Weight"):
-                supabase.table("health_metrics").insert(
-                    {"date": str(wt_ts), "weight_lb": weight, "notes": wt_notes}
-                ).execute()
-                st.rerun()
-
-    with col_gl:
-        with st.expander("🩸 Glucose", expanded=True):
-            gl_ts = st.date_input("Glucose Date", datetime.now().date(), key="gl_ts")
-            glu = st.number_input("Glucose (mg/dL)", 0, 1000, 100, key="glu_in")
-            gl_notes = st.text_input("Glucose Notes", key="gl_notes")
-            if st.button("Log Glucose"):
-                supabase.table("health_metrics").insert(
-                    {"date": str(gl_ts), "blood_glucose": glu, "notes": gl_notes}
-                ).execute()
-                st.rerun()
+    # ... (Keep your logging forms at the top exactly as they are) ...
 
     st.divider()
 
+    # --- NEW: TIME FILTER SELECTOR ---
+    st.subheader("📊 Performance & Trends")
+    time_filter = st.selectbox(
+        "Select Time Range",
+        ["All Time", "Last 7 Days", "Last 30 Days", "Last 90 Days"],
+        index=0,
+    )
+
     try:
-        # Fetch data ordered by date
+        # Fetch all data first
         res = (
             supabase.table("health_metrics")
             .select("*")
@@ -256,9 +225,26 @@ with tab2:
         )
 
         if res.data:
-            df_v = pd.DataFrame(res.data)
+            df_all = pd.DataFrame(res.data)
+            df_all["date"] = pd.to_datetime(
+                df_all["date"]
+            ).dt.date  # Ensure date format
 
-            # Latest Metrics Logic
+            # Apply Filtering Logic
+            if time_filter != "All Time":
+                days = int(time_filter.split()[1])  # Extract 7, 30, or 90
+                cutoff = datetime.now().date() - pd.Timedelta(days=days)
+                df_v = df_all[df_all["date"] >= cutoff].copy()
+            else:
+                df_v = df_all.copy()
+
+            if df_v.empty:
+                st.warning(
+                    f"No data found for the {time_filter}. Showing all time instead."
+                )
+                df_v = df_all.copy()
+
+            # --- DISPLAY METRICS (Uses filtered df_v) ---
             def get_latest(col):
                 valid = df_v.dropna(subset=[col])
                 return valid.iloc[-1] if not valid.empty else None
@@ -270,27 +256,12 @@ with tab2:
             )
 
             m1, m2, m3 = st.columns(3)
-            if l_bp is not None:
-                m1.metric(
-                    "Latest BP",
-                    f"{int(l_bp['blood_pressure_systolic'])}/{int(l_bp['blood_pressure_diastolic'])}",
-                )
-                if l_bp.get("notes"):
-                    m1.caption(f"📝 {l_bp['notes']}")
-            if l_gl is not None:
-                m2.metric("Latest Glucose", f"{int(l_gl['blood_glucose'])} mg/dL")
-                if l_gl.get("notes"):
-                    m2.caption(f"📝 {l_gl['notes']}")
-            if l_wt is not None:
-                m3.metric("Latest Weight", f"{l_wt['weight_lb']} lbs")
-                if l_wt.get("notes"):
-                    m3.caption(f"📝 {l_wt['notes']}")
+            # (Keep your metric.display logic using l_bp, l_gl, l_wt)
 
-            st.divider()
-
-            # Trends (Fallback to 'date' if 'created_at' isn't fully ready)
-            st.write("**Health Trends**")
+            # --- TRENDS (Uses filtered df_v) ---
             chart_x = "created_at" if "created_at" in df_v.columns else "date"
+
+            st.write(f"**Weight Trend ({time_filter})**")
             st.line_chart(
                 df_v.dropna(subset=["weight_lb"]),
                 x=chart_x,
@@ -298,38 +269,16 @@ with tab2:
                 color="#3498db",
             )
 
-            # --- MANAGE ENTRIES (THE "OOPS" BUTTON) ---
-            st.divider()
-            with st.expander("🗑️ Manage Recent Entries"):
-                # Sort descending to see newest at top
-                recent = df_v.sort_values("date", ascending=False).head(10)
-
+            # --- MANAGE ENTRIES (Uses filtered df_v) ---
+            with st.expander(f"🗑️ Manage Entries ({time_filter})"):
+                recent = df_v.sort_values("date", ascending=False)
                 for _, row in recent.iterrows():
                     c1, c2, c3 = st.columns([2, 5, 1])
                     c1.write(f"**{row['date']}**")
-
-                    # Construct a clear summary of what's in this row
-                    details = []
-                    if not pd.isna(row.get("blood_pressure_systolic")):
-                        details.append(f"BP: {int(row['blood_pressure_systolic'])}/...")
-                    if not pd.isna(row.get("blood_glucose")):
-                        details.append(f"Glu: {int(row['blood_glucose'])}")
-                    if not pd.isna(row.get("weight_lb")):
-                        details.append(f"{row['weight_lb']} lbs")
-
-                    summary = " | ".join(details)
-                    notes = f" ({row['notes']})" if row.get("notes") else ""
-                    c2.write(f"{summary}{notes}")
-
-                    # DELETE BUTTON: Using metric_id as Primary Key
-                    if c3.button("🗑️", key=f"del_{row['metric_id']}"):
-                        supabase.table("health_metrics").delete().eq(
-                            "metric_id", row["metric_id"]
-                        ).execute()
-                        st.rerun()
+                    # ... (Keep your delete button logic using metric_id) ...
 
     except Exception as e:
-        st.info(f"Log vitals to see history. (Error: {e})")
+        st.info(f"Error filtering data: {e}")
 
 # --- TAB 3: ACTIVITY (UI SWAP FIX) ---
 with tab3:
