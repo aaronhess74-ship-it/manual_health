@@ -302,7 +302,6 @@ with tab2:
 
     except Exception as e:
         st.error(f"Error drawing charts: {e}")
-
 # --- TAB 3: ACTIVITY (UI SWAP FIX) ---
 with tab3:
     st.subheader("🏃 Log Activity")
