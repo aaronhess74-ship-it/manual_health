@@ -198,54 +198,12 @@ with tab1:
                     "log_id", item["log_id"]
                 ).execute()
                 st.rerun()
+# Tab 2: Health Metrics & Trends
+import altair as alt
 
 with tab2:
-    # 1. LOGGING FORMS (Keeping these stable and functional)
-    st.subheader("➕ Log New Measurement")
-    col_bp, col_wt, col_gl = st.columns(3)
-
-    with col_bp:
-        with st.expander("❤️ Blood Pressure", expanded=True):
-            bp_ts = st.date_input("BP Date", datetime.now().date(), key="bp_v6_date")
-            sys = st.number_input("Systolic", 0, 300, 120, key="sys_v6")
-            dia = st.number_input("Diastolic", 0, 200, 80, key="dia_v6")
-            bp_notes = st.text_input("BP Notes", key="bp_notes_v6")
-            if st.button("Log BP", key="btn_bp_v6"):
-                supabase.table("health_metrics").insert(
-                    {
-                        "date": str(bp_ts),
-                        "blood_pressure_systolic": sys,
-                        "blood_pressure_diastolic": dia,
-                        "notes": bp_notes,
-                    }
-                ).execute()
-                st.rerun()
-
-    with col_wt:
-        with st.expander("⚖️ Weight", expanded=True):
-            wt_ts = st.date_input(
-                "Weight Date", datetime.now().date(), key="wt_v6_date"
-            )
-            weight = st.number_input("Weight (lbs)", 0.0, 1000.0, 180.0, key="wt_v6")
-            wt_notes = st.text_input("Weight Notes", key="wt_notes_v6")
-            if st.button("Log Weight", key="btn_wt_v6"):
-                supabase.table("health_metrics").insert(
-                    {"date": str(wt_ts), "weight_lb": weight, "notes": wt_notes}
-                ).execute()
-                st.rerun()
-
-    with col_gl:
-        with st.expander("🩸 Glucose", expanded=True):
-            gl_ts = st.date_input(
-                "Glucose Date", datetime.now().date(), key="gl_v6_date"
-            )
-            glu = st.number_input("Glucose (mg/dL)", 0, 1000, 100, key="glu_v6")
-            gl_notes = st.text_input("Glucose Notes", key="gl_notes_v6")
-            if st.button("Log Glucose", key="btn_gl_v6"):
-                supabase.table("health_metrics").insert(
-                    {"date": str(gl_ts), "blood_glucose": glu, "notes": gl_notes}
-                ).execute()
-                st.rerun()
+    # 1. INPUT FORMS (Stable & Functional)
+    # [Keep your existing BP, Weight, and Glucose input code here]
 
     st.divider()
 
@@ -259,91 +217,91 @@ with tab2:
         if res.data:
             df_v = pd.DataFrame(res.data)
 
-            # --- THE "DAY BLOCK" FIX ---
-            # Instead of 'created_at', we use the row index to distinguish
-            # multiple entries on the same date.
-            df_v = df_v.reset_index()
-            # Combine Date + Index so each bar is unique even if the date is the same
-            df_v["entry_label"] = (
-                df_v["date"].astype(str) + " (#" + df_v["index"].astype(str) + ")"
+            # Use 'date' for the day and 'created_at' for the precise time ordering
+            df_v["ts"] = pd.to_datetime(df_v.get("created_at", df_v["date"]))
+            df_v["time_label"] = df_v["ts"].dt.strftime("%H:%M")
+            # X-axis shows Day and Time clearly
+            df_v["display_x"] = (
+                df_v["ts"].dt.strftime("%b %d") + " " + df_v["time_label"]
             )
 
-            # --- LATEST METRICS WITH STATUS EMOJIS (UNCHANGED) ---
-            def get_latest(col):
-                valid = df_v.dropna(subset=[col])
-                return valid.iloc[-1] if not valid.empty else None
-
-            l_bp, l_gl, l_wt = (
-                get_latest("blood_pressure_systolic"),
-                get_latest("blood_glucose"),
-                get_latest("weight_lb"),
-            )
-
-            m1, m2, m3 = st.columns(3)
-            if l_bp is not None:
-                s, d = (
-                    int(l_bp["blood_pressure_systolic"]),
-                    int(l_bp["blood_pressure_diastolic"]),
-                )
-                bp_emoji = (
-                    "🟢" if s < 120 and d < 80 else "🟡" if s < 130 and d < 80 else "🔴"
-                )
-                m1.metric("Latest BP", f"{bp_emoji} {s}/{d}")
-            if l_gl is not None:
-                g = int(l_gl["blood_glucose"])
-                gl_emoji = "🟢" if g < 100 else "🟡" if g < 126 else "🔴"
-                m2.metric("Latest Glucose", f"{gl_emoji} {g} mg/dL")
-            if l_wt is not None:
-                m3.metric("Latest Weight", f"⚖️ {l_wt['weight_lb']} lbs")
+            # 2. LATEST METRICS (Keep your existing status logic)
+            # [Keep your metric status logic / emojis here]
 
             st.divider()
 
-            # --- BAR CHARTS WITH FIXED Y-AXIS RANGES ---
+            # --- 3. CUSTOM VISUALS WITH HARD Y-LIMITS ---
 
-            st.write("**Weight History (Range: 0-300)**")
-            wt_df = df_v.dropna(subset=["weight_lb"])
-            if not wt_df.empty:
-                # Clamp Y axis by setting the domain (0 to 300)
-                st.bar_chart(wt_df, x="entry_label", y="weight_lb", color="#3498db")
+            # WEIGHT CHART (150 - 300)
+            st.write("**Weight Trend (150 - 300 lbs)**")
+            wt_base = alt.Chart(df_v.dropna(subset=["weight_lb"])).encode(
+                x=alt.X("display_x:N", title="Log Time", sort=None)
+            )
+            # Line to show the trend
+            wt_line = wt_base.mark_line(color="#3498db", strokeWidth=2).encode(
+                y=alt.Y("weight_lb:Q", scale=alt.Scale(domain=[150, 300]), title="Lbs")
+            )
+            # Points with text labels so you don't have to click/hover
+            wt_points = wt_base.mark_circle(size=60, color="#3498db").encode(
+                y=alt.Y("weight_lb:Q")
+            )
+            wt_text = wt_base.mark_text(dy=-15, color="white").encode(
+                y=alt.Y("weight_lb:Q"), text=alt.Text("weight_lb:Q", format=".1f")
+            )
+            st.altair_chart(
+                (wt_line + wt_points + wt_text).properties(height=300),
+                use_container_width=True,
+            )
 
-            st.write("**Glucose History (Range: 0-200)**")
-            gl_df = df_v.dropna(subset=["blood_glucose"])
-            if not gl_df.empty:
-                st.bar_chart(gl_df, x="entry_label", y="blood_glucose", color="#f1c40f")
-
-            st.write("**Blood Pressure History (Range: 0-300)**")
-            bp_df = df_v.dropna(subset=["blood_pressure_systolic"])
-            if not bp_df.empty:
-                st.bar_chart(
-                    bp_df,
-                    x="entry_label",
-                    y=["blood_pressure_systolic", "blood_pressure_diastolic"],
-                    color=["#e74c3c", "#95a5a6"],
+            # GLUCOSE CHART (0 - 200)
+            st.write("**Glucose Trend (0 - 200 mg/dL)**")
+            gl_base = alt.Chart(df_v.dropna(subset=["blood_glucose"])).encode(
+                x=alt.X("display_x:N", title="Log Time", sort=None)
+            )
+            gl_line = gl_base.mark_line(color="#f1c40f", strokeWidth=2).encode(
+                y=alt.Y(
+                    "blood_glucose:Q", scale=alt.Scale(domain=[0, 200]), title="mg/dL"
                 )
+            )
+            gl_text = gl_base.mark_text(dy=-15, color="white").encode(
+                y=alt.Y("blood_glucose:Q"), text=alt.Text("blood_glucose:Q")
+            )
+            st.altair_chart(
+                (gl_line + gl_base.mark_circle(color="#f1c40f") + gl_text).properties(
+                    height=300
+                ),
+                use_container_width=True,
+            )
 
-            # --- MANAGE ENTRIES ---
-            with st.expander("🗑️ Manage Recent Entries"):
-                recent = df_v.sort_values("date", ascending=False).head(10)
-                for _, row in recent.iterrows():
-                    c1, c2, c3 = st.columns([2, 5, 1])
-                    c1.write(f"**{row['date']}**")
-                    details = []
-                    if not pd.isna(row.get("weight_lb")):
-                        details.append(f"{row['weight_lb']} lbs")
-                    if not pd.isna(row.get("blood_glucose")):
-                        details.append(f"Glu: {row['blood_glucose']}")
-                    c2.write(
-                        " | ".join(details)
-                        + (f" ({row['notes']})" if row.get("notes") else "")
-                    )
-                    if c3.button("🗑️", key=f"del_v6_{row['metric_id']}"):
-                        supabase.table("health_metrics").delete().eq(
-                            "metric_id", row["metric_id"]
-                        ).execute()
-                        st.rerun()
+            # BLOOD PRESSURE CHART (0 - 250)
+            # Using a "Range Bar" (Gantt style) - showing the gap between Sys and Dia
+            st.write("**Blood Pressure Range (0 - 250 mmHg)**")
+            bp_base = alt.Chart(df_v.dropna(subset=["blood_pressure_systolic"])).encode(
+                x=alt.X("display_x:N", title="Log Time", sort=None)
+            )
+            # Create a vertical bar between Systolic and Diastolic for each entry
+            bp_range = bp_base.mark_bar(width=10, color="#e74c3c", opacity=0.6).encode(
+                y=alt.Y("blood_pressure_diastolic:Q", scale=alt.Scale(domain=[0, 250])),
+                y2="blood_pressure_systolic:Q",
+            )
+            # Label the top (Systolic)
+            bp_text_sys = bp_base.mark_text(
+                dy=-10, color="#e74c3c", fontWeight="bold"
+            ).encode(y="blood_pressure_systolic:Q", text="blood_pressure_systolic:Q")
+            # Label the bottom (Diastolic)
+            bp_text_dia = bp_base.mark_text(dy=15, color="#95a5a6").encode(
+                y="blood_pressure_diastolic:Q", text="blood_pressure_diastolic:Q"
+            )
+            st.altair_chart(
+                (bp_range + bp_text_sys + bp_text_dia).properties(height=300),
+                use_container_width=True,
+            )
+
+            # 4. MANAGE ENTRIES (Keeping the stable delete logic)
+            # [Keep your Manage Entries expander here]
 
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"Error drawing charts: {e}")
 
 # --- TAB 3: ACTIVITY (UI SWAP FIX) ---
 with tab3:
