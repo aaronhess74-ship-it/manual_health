@@ -216,8 +216,16 @@ with tab2:
 
         if not df_v.empty:
             df_v["ts"] = pd.to_datetime(df_v["date"])
-            # Create the X-axis label used by the charts
-            df_v["display_x"] = df_v["ts"].dt.strftime("%b %d %H:%M")
+
+            # --- THE "CLEAN TIME" LOGIC ---
+            # If time is 00:00, show 'Feb 27'. If time is set, show 'Feb 27 08:30'
+            df_v["display_x"] = df_v["ts"].apply(
+                lambda x: (
+                    x.strftime("%b %d %H:%M")
+                    if x.time() != datetime.min.time()
+                    else x.strftime("%b %d")
+                )
+            )
 
             # --- 2. LATEST METRICS (AT THE TOP) ---
             st.subheader("📊 Current Status")
@@ -263,7 +271,7 @@ with tab2:
                 sys = st.number_input("Systolic", 0, 300, 120, key="n_bp_s")
                 dia = st.number_input("Diastolic", 0, 200, 80, key="n_bp_di")
                 n = st.text_input("Notes", key="n_bp_n")
-                if st.button("Log BP"):
+                if st.button("Log BP", key="btn_save_bp"):
                     supabase.table("health_metrics").insert(
                         {
                             "date": datetime.combine(d, t).isoformat(),
@@ -280,7 +288,7 @@ with tab2:
                 t = st.time_input("Wt Time", now.time(), key="n_wt_t")
                 w = st.number_input("Weight", 0.0, 500.0, 180.0, key="n_wt_w")
                 n = st.text_input("Notes", key="n_wt_n")
-                if st.button("Log Weight"):
+                if st.button("Log Weight", key="btn_save_wt"):
                     supabase.table("health_metrics").insert(
                         {
                             "date": datetime.combine(d, t).isoformat(),
@@ -296,7 +304,7 @@ with tab2:
                 t = st.time_input("Gl Time", now.time(), key="n_gl_t")
                 g = st.number_input("Glucose", 0, 500, 100, key="n_gl_g")
                 n = st.text_input("Notes", key="n_gl_n")
-                if st.button("Log Glucose"):
+                if st.button("Log Glucose", key="btn_save_gl"):
                     supabase.table("health_metrics").insert(
                         {
                             "date": datetime.combine(d, t).isoformat(),
@@ -309,7 +317,7 @@ with tab2:
         if not df_v.empty:
             st.divider()
 
-            # --- 4. THE PERFECT CHARTS (Restored & Locked) ---
+            # --- 4. THE PERFECT CHARTS (Hard Y-Axis Scales) ---
 
             # Weight Chart (150-300)
             st.write("**Weight Trend (150 - 300 lbs)**")
@@ -317,7 +325,7 @@ with tab2:
                 x=alt.X("display_x:N", title="Log Time", sort=None)
             )
             wt_line = wt_base.mark_line(color="#3498db", strokeWidth=2).encode(
-                y=alt.Y("weight_lb:Q", scale=alt.Scale(domain=[150, 300]))
+                y=alt.Y("weight_lb:Q", scale=alt.Scale(domain=[150, 300]), title="lbs")
             )
             wt_text = wt_base.mark_text(dy=-15, color="white").encode(
                 y="weight_lb:Q", text=alt.Text("weight_lb:Q", format=".1f")
@@ -335,7 +343,9 @@ with tab2:
                 x=alt.X("display_x:N", title="Log Time", sort=None)
             )
             gl_line = gl_base.mark_line(color="#f1c40f", strokeWidth=2).encode(
-                y=alt.Y("blood_glucose:Q", scale=alt.Scale(domain=[0, 200]))
+                y=alt.Y(
+                    "blood_glucose:Q", scale=alt.Scale(domain=[0, 200]), title="mg/dL"
+                )
             )
             gl_text = gl_base.mark_text(dy=-15, color="white").encode(
                 y="blood_glucose:Q", text="blood_glucose:Q"
@@ -353,7 +363,11 @@ with tab2:
                 x=alt.X("display_x:N", title="Log Time", sort=None)
             )
             bp_range = bp_base.mark_bar(width=10, color="#e74c3c", opacity=0.6).encode(
-                y=alt.Y("blood_pressure_diastolic:Q", scale=alt.Scale(domain=[0, 250])),
+                y=alt.Y(
+                    "blood_pressure_diastolic:Q",
+                    scale=alt.Scale(domain=[0, 250]),
+                    title="mmHg",
+                ),
                 y2="blood_pressure_systolic:Q",
             )
             bp_text_s = bp_base.mark_text(
@@ -379,7 +393,6 @@ with tab2:
                         with st.container(border=True):
                             st.write(f"**Editing Entry**")
                             c1, c2, c3 = st.columns(3)
-                            # FIX: Added Date/Time to Edit
                             e_date = c1.date_input(
                                 "Edit Date", row["ts"].date(), key=f"ed_{m_id}"
                             )
@@ -393,7 +406,6 @@ with tab2:
                             )
 
                             v1, v2, _ = st.columns(3)
-                            # Adjusting value fields based on what data is present
                             e_w = v1.number_input(
                                 "Weight",
                                 value=float(row["weight_lb"])
