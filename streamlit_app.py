@@ -198,15 +198,70 @@ with tab1:
                     "log_id", item["log_id"]
                 ).execute()
                 st.rerun()
-# Tab 2: Health Metrics & Trends
+
+# --- TAB 2: HEALTH METRICS ---
 import altair as alt
+from datetime import datetime
 
 with tab2:
-    # 1. INPUT FORMS (Stable & Functional)
-    # [Keep your existing BP, Weight, and Glucose input code here]
+    st.subheader("➕ Log New Measurement")
+
+    # 1. UPDATED LOGGING FORMS (With Manual Time Input)
+    col_bp, col_wt, col_gl = st.columns(3)
+    current_time = datetime.now().time()
+
+    with col_bp:
+        with st.expander("❤️ Blood Pressure", expanded=True):
+            bp_date = st.date_input("Date", datetime.now().date(), key="bp_d")
+            bp_time = st.time_input("Time", current_time, key="bp_t")
+            # Combine for the database
+            bp_dt = datetime.combine(bp_date, bp_time).isoformat()
+
+            sys = st.number_input("Systolic", 0, 300, 120, key="sys_in")
+            dia = st.number_input("Diastolic", 0, 200, 80, key="dia_in")
+            bp_notes = st.text_input("Notes", key="bp_n")
+            if st.button("Log BP"):
+                supabase.table("health_metrics").insert(
+                    {
+                        "date": bp_dt,
+                        "blood_pressure_systolic": sys,
+                        "blood_pressure_diastolic": dia,
+                        "notes": bp_notes,
+                    }
+                ).execute()
+                st.rerun()
+
+    with col_wt:
+        with st.expander("⚖️ Weight", expanded=True):
+            wt_date = st.date_input("Date", datetime.now().date(), key="wt_d")
+            wt_time = st.time_input("Time", current_time, key="wt_t")
+            wt_dt = datetime.combine(wt_date, wt_time).isoformat()
+
+            weight = st.number_input("Weight (lbs)", 0.0, 1000.0, 180.0, key="wt_in")
+            wt_notes = st.text_input("Notes", key="wt_n")
+            if st.button("Log Weight"):
+                supabase.table("health_metrics").insert(
+                    {"date": wt_dt, "weight_lb": weight, "notes": wt_notes}
+                ).execute()
+                st.rerun()
+
+    with col_gl:
+        with st.expander("🩸 Glucose", expanded=True):
+            gl_date = st.date_input("Date", datetime.now().date(), key="gl_d")
+            gl_time = st.time_input("Time", current_time, key="gl_t")
+            gl_dt = datetime.combine(gl_date, gl_time).isoformat()
+
+            glu = st.number_input("Glucose (mg/dL)", 0, 1000, 100, key="gl_in")
+            gl_notes = st.text_input("Notes", key="gl_n")
+            if st.button("Log Glucose"):
+                supabase.table("health_metrics").insert(
+                    {"date": gl_dt, "blood_glucose": glu, "notes": gl_notes}
+                ).execute()
+                st.rerun()
 
     st.divider()
 
+    # 2. DATA PROCESSING
     try:
         res = (
             supabase.table("health_metrics")
@@ -217,43 +272,61 @@ with tab2:
         if res.data:
             df_v = pd.DataFrame(res.data)
 
-            # Use 'date' for the day and 'created_at' for the precise time ordering
-            df_v["ts"] = pd.to_datetime(df_v.get("created_at", df_v["date"]))
-            df_v["time_label"] = df_v["ts"].dt.strftime("%H:%M")
-            # X-axis shows Day and Time clearly
-            df_v["display_x"] = (
-                df_v["ts"].dt.strftime("%b %d") + " " + df_v["time_label"]
+            # Formatting the Time/Date for Chart Axis
+            df_v["ts"] = pd.to_datetime(df_v["date"])
+            df_v["display_x"] = df_v["ts"].dt.strftime("%b %d %H:%M")
+
+            # --- LATEST METRICS WITH STATUS EMOJIS ---
+            def get_latest(col):
+                valid = df_v.dropna(subset=[col])
+                return valid.iloc[-1] if not valid.empty else None
+
+            l_bp, l_gl, l_wt = (
+                get_latest("blood_pressure_systolic"),
+                get_latest("blood_glucose"),
+                get_latest("weight_lb"),
             )
 
-            # 2. LATEST METRICS (Keep your existing status logic)
-            # [Keep your metric status logic / emojis here]
+            m1, m2, m3 = st.columns(3)
+            if l_bp is not None:
+                s, d = (
+                    int(l_bp["blood_pressure_systolic"]),
+                    int(l_bp["blood_pressure_diastolic"]),
+                )
+                bp_emoji = (
+                    "🟢" if s < 120 and d < 80 else "🟡" if s < 130 and d < 80 else "🔴"
+                )
+                m1.metric("Latest BP", f"{bp_emoji} {s}/{d}")
+            if l_gl is not None:
+                g = int(l_gl["blood_glucose"])
+                gl_emoji = "🟢" if g < 100 else "🟡" if g < 126 else "🔴"
+                m2.metric("Latest Glucose", f"{gl_emoji} {g} mg/dL")
+            if l_wt is not None:
+                m3.metric("Latest Weight", f"⚖️ {l_wt['weight_lb']} lbs")
 
             st.divider()
 
-            # --- 3. CUSTOM VISUALS WITH HARD Y-LIMITS ---
+            # --- 3. HIGH-VISIBILITY TRENDS (Fixed Hard Scales) ---
 
-            # WEIGHT CHART (150 - 300)
+            # Weight Chart (150 - 300)
             st.write("**Weight Trend (150 - 300 lbs)**")
             wt_base = alt.Chart(df_v.dropna(subset=["weight_lb"])).encode(
                 x=alt.X("display_x:N", title="Log Time", sort=None)
             )
-            # Line to show the trend
             wt_line = wt_base.mark_line(color="#3498db", strokeWidth=2).encode(
                 y=alt.Y("weight_lb:Q", scale=alt.Scale(domain=[150, 300]), title="Lbs")
-            )
-            # Points with text labels so you don't have to click/hover
-            wt_points = wt_base.mark_circle(size=60, color="#3498db").encode(
-                y=alt.Y("weight_lb:Q")
             )
             wt_text = wt_base.mark_text(dy=-15, color="white").encode(
                 y=alt.Y("weight_lb:Q"), text=alt.Text("weight_lb:Q", format=".1f")
             )
             st.altair_chart(
-                (wt_line + wt_points + wt_text).properties(height=300),
+                (wt_line + wt_base.mark_circle(color="#3498db") + wt_text).properties(
+                    height=300
+                ),
                 use_container_width=True,
             )
 
-            # GLUCOSE CHART (0 - 200)
+            # Glucose Chart (0 - 200)
             st.write("**Glucose Trend (0 - 200 mg/dL)**")
             gl_base = alt.Chart(df_v.dropna(subset=["blood_glucose"])).encode(
                 x=alt.X("display_x:N", title="Log Time", sort=None)
@@ -273,22 +346,18 @@ with tab2:
                 use_container_width=True,
             )
 
-            # BLOOD PRESSURE CHART (0 - 250)
-            # Using a "Range Bar" (Gantt style) - showing the gap between Sys and Dia
+            # BP Range Chart (0 - 250)
             st.write("**Blood Pressure Range (0 - 250 mmHg)**")
             bp_base = alt.Chart(df_v.dropna(subset=["blood_pressure_systolic"])).encode(
                 x=alt.X("display_x:N", title="Log Time", sort=None)
             )
-            # Create a vertical bar between Systolic and Diastolic for each entry
             bp_range = bp_base.mark_bar(width=10, color="#e74c3c", opacity=0.6).encode(
                 y=alt.Y("blood_pressure_diastolic:Q", scale=alt.Scale(domain=[0, 250])),
                 y2="blood_pressure_systolic:Q",
             )
-            # Label the top (Systolic)
             bp_text_sys = bp_base.mark_text(
                 dy=-10, color="#e74c3c", fontWeight="bold"
             ).encode(y="blood_pressure_systolic:Q", text="blood_pressure_systolic:Q")
-            # Label the bottom (Diastolic)
             bp_text_dia = bp_base.mark_text(dy=15, color="#95a5a6").encode(
                 y="blood_pressure_diastolic:Q", text="blood_pressure_diastolic:Q"
             )
@@ -297,11 +366,30 @@ with tab2:
                 use_container_width=True,
             )
 
-            # 4. MANAGE ENTRIES (Keeping the stable delete logic)
-            # [Keep your Manage Entries expander here]
+            # --- 4. MANAGE ENTRIES ---
+            with st.expander("🗑️ Manage Recent Entries"):
+                recent = df_v.sort_values("date", ascending=False).head(10)
+                for _, row in recent.iterrows():
+                    c1, c2, c3 = st.columns([2, 5, 1])
+                    c1.write(f"**{row['display_x']}**")
+                    details = []
+                    if not pd.isna(row.get("weight_lb")):
+                        details.append(f"{row['weight_lb']} lbs")
+                    if not pd.isna(row.get("blood_glucose")):
+                        details.append(f"Glu: {row['blood_glucose']}")
+                    c2.write(
+                        " | ".join(details)
+                        + (f" ({row['notes']})" if row.get("notes") else "")
+                    )
+                    if c3.button("🗑️", key=f"del_v7_{row['metric_id']}"):
+                        supabase.table("health_metrics").delete().eq(
+                            "metric_id", row["metric_id"]
+                        ).execute()
+                        st.rerun()
 
     except Exception as e:
-        st.error(f"Error drawing charts: {e}")
+        st.error(f"Error drawing dashboard: {e}")
+
 # --- TAB 3: ACTIVITY (UI SWAP FIX) ---
 with tab3:
     st.subheader("🏃 Log Activity")
