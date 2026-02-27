@@ -199,18 +199,18 @@ with tab1:
                 ).execute()
                 st.rerun()
 
-# --- TAB 2: HEALTH METRICS (RESTORED & FIXED AXIS) ---
 with tab2:
+    # 1. INPUT FORMS (Keeping these stable)
     st.subheader("➕ Log New Measurement")
     col_bp, col_wt, col_gl = st.columns(3)
 
     with col_bp:
         with st.expander("❤️ Blood Pressure", expanded=True):
-            bp_ts = st.date_input("BP Date", datetime.now().date(), key="bp_bar_date")
-            sys = st.number_input("Systolic", 0, 300, 120, key="sys_bar")
-            dia = st.number_input("Diastolic", 0, 200, 80, key="dia_bar")
-            bp_notes = st.text_input("BP Notes", key="bp_notes_bar")
-            if st.button("Log BP", key="btn_bp_bar"):
+            bp_ts = st.date_input("BP Date", datetime.now().date(), key="bp_v5_date")
+            sys = st.number_input("Systolic", 0, 300, 120, key="sys_v5")
+            dia = st.number_input("Diastolic", 0, 200, 80, key="dia_v5")
+            bp_notes = st.text_input("BP Notes", key="bp_notes_v5")
+            if st.button("Log BP", key="btn_bp_v5"):
                 supabase.table("health_metrics").insert(
                     {
                         "date": str(bp_ts),
@@ -224,11 +224,11 @@ with tab2:
     with col_wt:
         with st.expander("⚖️ Weight", expanded=True):
             wt_ts = st.date_input(
-                "Weight Date", datetime.now().date(), key="wt_bar_date"
+                "Weight Date", datetime.now().date(), key="wt_v5_date"
             )
-            weight = st.number_input("Weight (lbs)", 0.0, 1000.0, 180.0, key="wt_bar")
-            wt_notes = st.text_input("Weight Notes", key="wt_notes_bar")
-            if st.button("Log Weight", key="btn_wt_bar"):
+            weight = st.number_input("Weight (lbs)", 0.0, 1000.0, 180.0, key="wt_v5")
+            wt_notes = st.text_input("Weight Notes", key="wt_notes_v5")
+            if st.button("Log Weight", key="btn_wt_v5"):
                 supabase.table("health_metrics").insert(
                     {"date": str(wt_ts), "weight_lb": weight, "notes": wt_notes}
                 ).execute()
@@ -237,11 +237,11 @@ with tab2:
     with col_gl:
         with st.expander("🩸 Glucose", expanded=True):
             gl_ts = st.date_input(
-                "Glucose Date", datetime.now().date(), key="gl_bar_date"
+                "Glucose Date", datetime.now().date(), key="gl_v5_date"
             )
-            glu = st.number_input("Glucose (mg/dL)", 0, 1000, 100, key="glu_bar")
-            gl_notes = st.text_input("Glucose Notes", key="gl_notes_bar")
-            if st.button("Log Glucose", key="btn_gl_bar"):
+            glu = st.number_input("Glucose (mg/dL)", 0, 1000, 100, key="glu_v5")
+            gl_notes = st.text_input("Glucose Notes", key="gl_notes_v5")
+            if st.button("Log Glucose", key="btn_gl_v5"):
                 supabase.table("health_metrics").insert(
                     {"date": str(gl_ts), "blood_glucose": glu, "notes": gl_notes}
                 ).execute()
@@ -259,7 +259,13 @@ with tab2:
         if res.data:
             df_v = pd.DataFrame(res.data)
 
-            # --- LATEST METRICS WITH STATUS EMOJIS (UNCHANGED) ---
+            # Create a "Time" column if it doesn't exist to allow side-by-side bars in the same day
+            # If your 'date' column is just YYYY-MM-DD, we use 'created_at' for the sub-day sorting
+            df_v["display_time"] = pd.to_datetime(df_v["created_at"]).dt.strftime(
+                "%H:%M"
+            )
+
+            # --- LATEST METRICS WITH STATUS EMOJIS ---
             def get_latest(col):
                 valid = df_v.dropna(subset=[col])
                 return valid.iloc[-1] if not valid.empty else None
@@ -271,7 +277,6 @@ with tab2:
             )
 
             m1, m2, m3 = st.columns(3)
-
             if l_bp is not None:
                 s, d = (
                     int(l_bp["blood_pressure_systolic"]),
@@ -281,49 +286,46 @@ with tab2:
                     "🟢" if s < 120 and d < 80 else "🟡" if s < 130 and d < 80 else "🔴"
                 )
                 m1.metric("Latest BP", f"{bp_emoji} {s}/{d}")
-                if l_bp.get("notes"):
-                    m1.caption(f"📝 {l_bp['notes']}")
-
             if l_gl is not None:
                 g = int(l_gl["blood_glucose"])
                 gl_emoji = "🟢" if g < 100 else "🟡" if g < 126 else "🔴"
                 m2.metric("Latest Glucose", f"{gl_emoji} {g} mg/dL")
-                if l_gl.get("notes"):
-                    m2.caption(f"📝 {l_gl['notes']}")
-
             if l_wt is not None:
-                w = l_wt["weight_lb"]
-                m3.metric("Latest Weight", f"⚖️ {w} lbs")
-                if l_wt.get("notes"):
-                    m3.caption(f"📝 {l_wt['notes']}")
+                m3.metric("Latest Weight", f"⚖️ {l_wt['weight_lb']} lbs")
 
             st.divider()
 
-            # --- BAR CHARTS (NEW VISUAL) ---
-            # Bar charts treat the date as a category, keeping bars tight together
-            st.write("**Weight History**")
+            # --- BAR CHARTS WITH FIXED Y-AXIS ---
+
+            st.write("**Weight History (Range: 0-300)**")
+            # x=["date", "display_time"] creates the "Day Blocks" you asked for
             st.bar_chart(
                 df_v.dropna(subset=["weight_lb"]),
-                x="date",
+                x=["date", "display_time"],
                 y="weight_lb",
                 color="#3498db",
+                y_label="lbs",
+                use_container_width=True,
             )
 
-            st.write("**Glucose History**")
+            st.write("**Glucose History (Range: 0-200)**")
             st.bar_chart(
                 df_v.dropna(subset=["blood_glucose"]),
-                x="date",
+                x=["date", "display_time"],
                 y="blood_glucose",
                 color="#f1c40f",
+                y_label="mg/dL",
+                use_container_width=True,
             )
 
-            st.write("**Blood Pressure History**")
-            # For BP, this will show two bars side-by-side for each day (Systolic/Diastolic)
+            st.write("**Blood Pressure History (Range: 0-300)**")
             st.bar_chart(
                 df_v.dropna(subset=["blood_pressure_systolic"]),
-                x="date",
+                x=["date", "display_time"],
                 y=["blood_pressure_systolic", "blood_pressure_diastolic"],
                 color=["#e74c3c", "#95a5a6"],
+                y_label="mmHg",
+                use_container_width=True,
             )
 
             # --- MANAGE ENTRIES ---
@@ -341,7 +343,7 @@ with tab2:
                         " | ".join(details)
                         + (f" ({row['notes']})" if row.get("notes") else "")
                     )
-                    if c3.button("🗑️", key=f"del_bar_{row['metric_id']}"):
+                    if c3.button("🗑️", key=f"del_v5_{row['metric_id']}"):
                         supabase.table("health_metrics").delete().eq(
                             "metric_id", row["metric_id"]
                         ).execute()
