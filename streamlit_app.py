@@ -617,3 +617,86 @@ with tab4:
     res = supabase.table(tbl).select("*").order("date", desc=True).execute()
     if res.data:
         st.dataframe(pd.DataFrame(res.data), use_container_width=True)
+
+        st.divider()
+
+        # --- NEW GLOBAL EXPORT ---
+        st.divider()
+    st.subheader("📂 Comprehensive Data Export")
+    st.write(
+        "Generate a Master Ledger for Google Sheets (includes every meal and vital)."
+    )
+
+    if st.button("🚀 Prepare Master CSV"):
+        try:
+            # 1. Fetch Raw Data
+            logs_res = supabase.table("daily_logs").select("*").execute()
+            health_res = supabase.table("health_metrics").select("*").execute()
+            act_res = supabase.table("activity_logs").select("*").execute()
+
+            # 2. Build the "Universal" list
+            master_data = []
+
+            # Add Nutrition Logs
+            for item in logs_res.data:
+                master_data.append(
+                    {
+                        "date": item["log_date"],
+                        "type": "Nutrition",
+                        "metric": item["meal_name"],
+                        "value": item["calories"],
+                        "unit": "kcal",
+                    }
+                )
+
+            # Add Health Metrics
+            for item in health_res.data:
+                # Add weight as an entry
+                master_data.append(
+                    {
+                        "date": item["date"],
+                        "type": "Health",
+                        "metric": "Weight",
+                        "value": item.get("weight", 0),
+                        "unit": "lbs",
+                    }
+                )
+                # Add glucose as an entry
+                master_data.append(
+                    {
+                        "date": item["date"],
+                        "type": "Health",
+                        "metric": "Glucose",
+                        "value": item.get("glucose", 0),
+                        "unit": "mg/dL",
+                    }
+                )
+
+            # Add Activity
+            for item in act_res.data:
+                master_data.append(
+                    {
+                        "date": item["date"],
+                        "type": "Activity",
+                        "metric": item["activity_type"],
+                        "value": item.get("duration", 0),
+                        "unit": "min",
+                    }
+                )
+
+            # 3. Create DataFrame and Export
+            master_df = pd.DataFrame(master_data).sort_values(
+                by="date", ascending=False
+            )
+            csv = master_df.to_csv(index=False).encode("utf-8")
+
+            st.download_button(
+                label="📥 Download Universal_Health_Ledger.csv",
+                data=csv,
+                file_name=f"health_master_{datetime.now().date()}.csv",
+                mime="text/csv",
+            )
+            st.dataframe(master_df.head(10))  # Preview
+
+        except Exception as e:
+            st.error(f"Master Export failed: {e}")
