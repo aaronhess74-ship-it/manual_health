@@ -332,7 +332,7 @@ with tab2:
         if not df_v.empty:
             st.divider()
 
-            # --- 4. THE CHARTS (Ordinal Axis with Tooltips) ---
+            #
             def create_health_chart(data, y_col, color, y_domain, title):
                 chart_df = data.dropna(subset=[y_col]).sort_values("ts")
                 base = alt.Chart(chart_df).encode(
