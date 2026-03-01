@@ -501,8 +501,8 @@ with tab3:
                 supabase.table("activity_logs").insert(
                     {
                         "date": str(a_date),
-                        "exercise_name": name,
-                        "activity_type": act_type,
+                        "exercise_name": name,  # Specific exercise
+                        "activity_type": act_type,  # Category (Strength/Cardio)
                         "duration_min": dur,
                         "distance_miles": dist,
                         "sets": sets,
@@ -630,7 +630,7 @@ with tab4:
         "Generate a Master Ledger for Google Sheets (includes every meal and vital)."
     )
 
-    if st.button("🚀 Prepare Master CSV", key="master_global_export_button"):
+    if st.button("🚀 Prepare Master CSV", key="unique_master_export_2024"):
         try:
             # 1. Fetch Raw Data
             logs_res = supabase.table("daily_logs").select("*").execute()
@@ -673,14 +673,17 @@ with tab4:
                     }
                 )
 
-            # Add Activity
+            # Add Activity (Mapping names correctly)
             for item in act_res.data:
                 master_data.append(
                     {
                         "date": item.get("date"),
                         "type": "Activity",
-                        "metric": item.get("activity_type"),
-                        "value": item.get("duration", 0),
+                        # We use exercise_name for the label
+                        "metric": item.get("exercise_name")
+                        or item.get("activity_type"),
+                        # We use duration_min for the numeric value
+                        "value": item.get("duration_min", 0),
                         "unit": "min",
                     }
                 )
