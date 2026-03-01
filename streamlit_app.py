@@ -382,22 +382,36 @@ with tab4:
     report_type = st.selectbox(
         "Select Table", ["Nutrition Variance", "Health Vitals", "Activity Logs"]
     )
-    tbl = (
-        "daily_variance"
-        if report_type == "Nutrition Variance"
-        else "health_metrics"
-        if report_type == "Health Vitals"
-        else "activity_logs"
-    )
+
+    # Map the dropdown selection to the actual Supabase table name
+    table_map = {
+        "Nutrition Variance": "daily_variance",
+        "Health Vitals": "health_metrics",
+        "Activity Logs": "activity_logs",
+    }
+    tbl = table_map[report_type]
 
     try:
+        # We check the table name to decide which column to sort by
+        sort_col = "log_date" if tbl == "daily_variance" else "date"
+
         res = (
-            supabase.table(tbl).select("*").order("date", desc=True).limit(50).execute()
+            supabase.table(tbl)
+            .select("*")
+            .order(sort_col, desc=True)
+            .limit(50)
+            .execute()
         )
+
         if res.data:
             st.dataframe(pd.DataFrame(res.data), use_container_width=True)
-    except:
-        st.info("No data found.")
+        else:
+            st.info(f"No data found in {report_type}.")
+    except Exception as viewer_err:
+        # If sorting fails, we just pull the data without sorting so it doesn't crash
+        st.warning(f"Note: Sorting failed, showing raw data. ({viewer_err})")
+        res = supabase.table(tbl).select("*").limit(50).execute()
+        st.dataframe(pd.DataFrame(res.data), use_container_width=True)
 
     st.divider()
     st.subheader("📂 Comprehensive Master Export")
