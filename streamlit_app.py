@@ -1,4 +1,4 @@
-# Forced Update - Version 1.2.2 (Synced with activity_category)
+# Version 1.2.3 - Full Sync with activity_category and Master Export
 import streamlit as st
 from supabase import create_client
 from datetime import datetime
@@ -22,9 +22,6 @@ TARGET_FIBER_MIN = 30
 TARGET_WEIGHT = 180
 TARGET_GLUCOSE = 100
 TARGET_BP_SYS = 130
-
-# Colors for Trends
-C_RED, C_YELLOW, C_GREEN, C_GRAY = "#e74c3c", "#f1c40f", "#2ecc71", "#bdc3c7"
 
 tab1, tab2, tab3, tab4 = st.tabs(
     ["🍴 Nutrition", "🩺 Health Metrics", "🏃 Activity", "📊 Reports & Exports"]
@@ -218,14 +215,6 @@ with tab2:
                 + " "
                 + df_v["time"].fillna("00:00:00").astype(str)
             )
-
-            def format_label(dt):
-                if dt.hour == 0 and dt.minute == 0 and dt.second == 0:
-                    return dt.strftime("%b %d")
-                return dt.strftime("%b %d | %H:%M")
-
-            df_v["chart_label"] = df_v["ts"].apply(format_label)
-
             st.subheader("📊 Current Status")
 
             def get_latest(col):
@@ -243,94 +232,79 @@ with tab2:
                     int(l_bp["blood_pressure_systolic"]),
                     int(l_bp["blood_pressure_diastolic"]),
                 )
-                bp_emoji = (
-                    "🟢" if s < 120 and d < 80 else "🟡" if s < 130 and d < 80 else "🔴"
-                )
-                m1.metric("Latest BP", f"{bp_emoji} {s}/{d}")
+                m1.metric("Latest BP", f"{s}/{d}")
             if l_gl is not None:
-                g = int(l_gl["blood_glucose"])
-                gl_emoji = "🟢" if g < 100 else "🟡" if g < 126 else "🔴"
-                m2.metric("Latest Glucose", f"{gl_emoji} {g} mg/dL")
+                m2.metric("Latest Glucose", f"{int(l_gl['blood_glucose'])} mg/dL")
             if l_wt is not None:
-                m3.metric("Latest Weight", f"⚖️ {l_wt['weight_lb']} lbs")
+                m3.metric("Latest Weight", f"{l_wt['weight_lb']} lbs")
 
         st.subheader("➕ Log New Measurement")
         col_bp, col_wt, col_gl = st.columns(3)
         now = datetime.now()
-
         with col_bp:
             with st.expander("❤️ Blood Pressure"):
                 d_bp = st.date_input("Date", now.date(), key="d_bp")
-                t_bp = st.time_input("Time", now.time(), key="t_bp")
                 sys = st.number_input("Systolic", 0, 300, 120)
                 dia = st.number_input("Diastolic", 0, 200, 80)
                 if st.button("Log BP"):
                     supabase.table("health_metrics").insert(
                         {
                             "date": d_bp.isoformat(),
-                            "time": t_bp.strftime("%H:%M:%S"),
+                            "time": now.strftime("%H:%M:%S"),
                             "blood_pressure_systolic": sys,
                             "blood_pressure_diastolic": dia,
                         }
                     ).execute()
                     st.rerun()
-
         with col_wt:
             with st.expander("⚖️ Weight"):
                 d_wt = st.date_input("Date", now.date(), key="d_wt")
-                t_wt = st.time_input("Time", now.time(), key="t_wt")
                 w_wt = st.number_input("Weight (lbs)", 0.0, 500.0, 180.0)
                 if st.button("Log Weight"):
                     supabase.table("health_metrics").insert(
                         {
                             "date": d_wt.isoformat(),
-                            "time": t_wt.strftime("%H:%M:%S"),
+                            "time": now.strftime("%H:%M:%S"),
                             "weight_lb": w_wt,
                         }
                     ).execute()
                     st.rerun()
-
         with col_gl:
             with st.expander("🩸 Glucose"):
                 d_gl = st.date_input("Date", now.date(), key="d_gl")
-                t_gl = st.time_input("Time", now.time(), key="t_gl")
                 g_gl = st.number_input("Glucose", 0, 500, 100)
                 if st.button("Log Glucose"):
                     supabase.table("health_metrics").insert(
                         {
                             "date": d_gl.isoformat(),
-                            "time": t_gl.strftime("%H:%M:%S"),
+                            "time": now.strftime("%H:%M:%S"),
                             "blood_glucose": g_gl,
                         }
                     ).execute()
                     st.rerun()
-
     except Exception as e:
         st.error(f"Error drawing dashboard: {e}")
 
-# --- TAB 3: ACTIVITY (Corrected for activity_category) ---
+# --- TAB 3: ACTIVITY (Synced with activity_category) ---
 with tab3:
     st.subheader("🏃 Log Activity")
-    act_cat = st.radio(
-        "Select Category", ["Strength", "Cardio", "Endurance"], horizontal=True
+    act_choice = st.radio(
+        "Category", ["Strength", "Cardio", "Endurance"], horizontal=True
     )
-
     with st.form("act_form", clear_on_submit=True):
         a_date = st.date_input("Date", datetime.now().date())
-        name = st.text_input("Exercise Name (e.g. Bench Press, Running)")
+        name = st.text_input("Exercise Name")
         c1, c2, c3 = st.columns(3)
-        dur, dist, sets, reps, weight_ex = 0.0, 0.0, 0, 0, 0
-
-        if act_cat == "Strength":
+        dur, dist, sets, reps, w_ex = 0.0, 0.0, 0, 0, 0
+        if act_choice == "Strength":
             sets = c1.number_input("Sets", 0, 100, 3)
             reps = c2.number_input("Reps", 0, 100, 10)
-            weight_ex = c3.number_input("Weight (lbs)", 0, 1000, 0)
-        elif act_cat == "Cardio":
-            dur = c1.number_input("Duration (mins)", 0.0, 500.0, 30.0)
-            dist = c2.number_input("Distance (miles)", 0.0, 100.0, 0.0)
-        elif act_cat == "Endurance":
-            dur = c1.number_input("Duration (mins)", 0.0, 500.0, 30.0)
-            sets = c2.number_input("Sets", 0, 100, 0)
+            w_ex = c3.number_input("Weight (lbs)", 0, 1000, 0)
+        elif act_choice == "Cardio":
+            dur = c1.number_input("Duration (min)", 0.0, 500.0, 30.0)
+            dist = c2.number_input("Distance (mi)", 0.0, 100.0, 0.0)
+        elif act_choice == "Endurance":
+            dur = c1.number_input("Duration (min)", 0.0, 500.0, 30.0)
 
         if st.form_submit_button("Log Activity"):
             if name:
@@ -338,18 +312,15 @@ with tab3:
                     {
                         "date": str(a_date),
                         "exercise_name": name,
-                        "activity_category": act_cat,  # UPDATED COLUMN NAME
+                        "activity_category": act_choice,
                         "duration_min": dur,
                         "distance_miles": dist,
                         "sets": sets,
                         "reps": reps,
-                        "weight_lbs": weight_ex,
+                        "weight_lbs": w_ex,
                     }
                 ).execute()
-                st.success(f"Logged {name}!")
                 st.rerun()
-            else:
-                st.warning("Please enter an exercise name.")
 
     st.divider()
     try:
@@ -360,30 +331,18 @@ with tab3:
             .execute()
         )
         if a_res.data:
-            st.subheader("📜 Activity History")
             st.dataframe(pd.DataFrame(a_res.data), use_container_width=True)
-    except Exception as e:
-        st.error(f"Activity load error: {e}")
+    except:
+        pass
 
 # --- TAB 4: REPORTS & EXPORTS ---
 with tab4:
-    st.subheader("📥 Universal Food Importer")
-    uploaded_file = st.file_uploader("Upload CSV (Kaggle or USDA)", type="csv")
-    if uploaded_file:
-        try:
-            df_raw = pd.read_csv(uploaded_file, on_bad_lines="skip")
-            # (Mapping logic remains same as previous working version)
-            st.info("File received. Mapping logic active.")
-        except Exception as e:
-            st.error(f"Upload error: {e}")
-
-    st.divider()
     st.subheader("📊 Individual Table Viewer")
     report_type = st.selectbox(
-        "Select Table", ["Nutrition Variance", "Health Vitals", "Activity Logs"]
+        "Select Table",
+        ["Nutrition Variance", "Health Vitals", "Activity Logs"],
+        key="safe_view",
     )
-
-    # Map the dropdown selection to the actual Supabase table name
     table_map = {
         "Nutrition Variance": "daily_variance",
         "Health Vitals": "health_metrics",
@@ -392,9 +351,7 @@ with tab4:
     tbl = table_map[report_type]
 
     try:
-        # We check the table name to decide which column to sort by
         sort_col = "log_date" if tbl == "daily_variance" else "date"
-
         res = (
             supabase.table(tbl)
             .select("*")
@@ -402,94 +359,83 @@ with tab4:
             .limit(50)
             .execute()
         )
-
         if res.data:
             st.dataframe(pd.DataFrame(res.data), use_container_width=True)
-        else:
-            st.info(f"No data found in {report_type}.")
-    except Exception as viewer_err:
-        # If sorting fails, we just pull the data without sorting so it doesn't crash
-        st.warning(f"Note: Sorting failed, showing raw data. ({viewer_err})")
-        res = supabase.table(tbl).select("*").limit(50).execute()
-        st.dataframe(pd.DataFrame(res.data), use_container_width=True)
+    except Exception as e:
+        st.error(f"Viewer Error: {e}")
+        try:  # Fallback to unsorted if sort_col fails
+            fallback = supabase.table(tbl).select("*").limit(10).execute()
+            if fallback.data:
+                st.dataframe(pd.DataFrame(fallback.data))
+        except:
+            st.warning("Could not fetch table.")
 
     st.divider()
     st.subheader("📂 Comprehensive Master Export")
-    if st.button("🚀 Prepare Master CSV", key="global_export_final"):
+    if st.button("🚀 Prepare Master CSV"):
         try:
-            logs_res = (
+            l_res = (
                 supabase.table("daily_logs")
                 .select("log_date, foods(food_name, calories)")
                 .execute()
             )
-            health_res = supabase.table("health_metrics").select("*").execute()
-            act_res = supabase.table("activity_logs").select("*").execute()
-
-            master_data = []
-
-            # 1. Nutrition
-            for item in logs_res.data:
-                master_data.append(
-                    {
-                        "date": item.get("log_date"),
-                        "type": "Nutrition",
-                        "metric": item["foods"]["food_name"]
-                        if item.get("foods")
-                        else "Meal",
-                        "value": item["foods"]["calories"] if item.get("foods") else 0,
-                        "unit": "kcal",
-                    }
-                )
-
-            # 2. Health
-            for item in health_res.data:
-                if item.get("weight_lb"):
-                    master_data.append(
+            h_res = supabase.table("health_metrics").select("*").execute()
+            a_res = supabase.table("activity_logs").select("*").execute()
+            master = []
+            for i in l_res.data:
+                if i.get("foods"):
+                    master.append(
                         {
-                            "date": item["date"],
+                            "date": i.get("log_date"),
+                            "type": "Nutrition",
+                            "metric": i["foods"]["food_name"],
+                            "value": i["foods"]["calories"],
+                            "unit": "kcal",
+                        }
+                    )
+            for i in h_res.data:
+                if i.get("weight_lb"):
+                    master.append(
+                        {
+                            "date": i["date"],
                             "type": "Health",
                             "metric": "Weight",
-                            "value": item["weight_lb"],
+                            "value": i["weight_lb"],
                             "unit": "lbs",
                         }
                     )
-                if item.get("blood_glucose"):
-                    master_data.append(
+                if i.get("blood_glucose"):
+                    master.append(
                         {
-                            "date": item["date"],
+                            "date": i["date"],
                             "type": "Health",
                             "metric": "Glucose",
-                            "value": item["blood_glucose"],
+                            "value": i["blood_glucose"],
                             "unit": "mg/dL",
                         }
                     )
-
-            # 3. Activity (MATCHED TO NEW SCHEMA)
-            for item in act_res.data:
-                # Use exercise_name first, then activity_category
-                label = (
-                    item.get("exercise_name")
-                    or item.get("activity_category")
-                    or "Exercise"
-                )
-                master_data.append(
+            for i in a_res.data:
+                lbl = i.get("exercise_name") or i.get("activity_category") or "Activity"
+                master.append(
                     {
-                        "date": item.get("date"),
+                        "date": i.get("date"),
                         "type": "Activity",
-                        "metric": label,
-                        "value": item.get("duration_min", 0),
+                        "metric": lbl,
+                        "value": i.get("duration_min", 0),
                         "unit": "min",
                     }
                 )
 
-            if master_data:
-                m_df = pd.DataFrame(master_data).sort_values(by="date", ascending=False)
+            if master:
+                m_df = pd.DataFrame(master).sort_values(by="date", ascending=False)
                 st.download_button(
-                    "📥 Download Universal_Health_Ledger.csv",
+                    "📥 Download Master CSV",
                     m_df.to_csv(index=False).encode("utf-8"),
-                    f"health_master_{datetime.now().date()}.csv",
+                    "health_master.csv",
                     "text/csv",
                 )
                 st.dataframe(m_df.head(10))
+            else:
+                st.warning("No data found.")
         except Exception as e:
-            st.error(f"Export failed: {e}")
+            st.error(f"Export Error: {e}")
