@@ -603,10 +603,11 @@ with tab4:
         pass
 
     st.divider()
-    st.subheader("📂 Master Data Export")
+    st.subheader("📊 Individual Table Viewer")
     report_type = st.selectbox(
-        "View Table", ["Nutrition Variance", "Health Vitals", "Activity Logs"]
+        "Select Table to View", ["Nutrition Variance", "Health Vitals", "Activity Logs"]
     )
+
     tbl = (
         "daily_variance"
         if report_type == "Nutrition Variance"
@@ -614,15 +615,17 @@ with tab4:
         if report_type == "Health Vitals"
         else "activity_logs"
     )
+
     res = supabase.table(tbl).select("*").order("date", desc=True).execute()
+
     if res.data:
         st.dataframe(pd.DataFrame(res.data), use_container_width=True)
+    else:
+        st.info(f"No data found in {report_type}.")
 
-        st.divider()
-
-        # --- NEW GLOBAL EXPORT ---
-        st.divider()
-    st.subheader("📂 Comprehensive Data Export")
+    # --- START OF GLOBAL EXPORT (Now independent of the viewer above) ---
+    st.divider()
+    st.subheader("📂 Comprehensive Master Export")
     st.write(
         "Generate a Master Ledger for Google Sheets (includes every meal and vital)."
     )
@@ -637,34 +640,32 @@ with tab4:
             # 2. Build the "Universal" list
             master_data = []
 
-            # Add Nutrition Logs
+            # Add Nutrition Logs (using log_date)
             for item in logs_res.data:
                 master_data.append(
                     {
-                        "date": item["log_date"],
+                        "date": item.get("log_date"),
                         "type": "Nutrition",
-                        "metric": item["meal_name"],
-                        "value": item["calories"],
+                        "metric": item.get("meal_name"),
+                        "value": item.get("calories", 0),
                         "unit": "kcal",
                     }
                 )
 
             # Add Health Metrics
             for item in health_res.data:
-                # Add weight as an entry
                 master_data.append(
                     {
-                        "date": item["date"],
+                        "date": item.get("date"),
                         "type": "Health",
                         "metric": "Weight",
                         "value": item.get("weight", 0),
                         "unit": "lbs",
                     }
                 )
-                # Add glucose as an entry
                 master_data.append(
                     {
-                        "date": item["date"],
+                        "date": item.get("date"),
                         "type": "Health",
                         "metric": "Glucose",
                         "value": item.get("glucose", 0),
@@ -676,27 +677,31 @@ with tab4:
             for item in act_res.data:
                 master_data.append(
                     {
-                        "date": item["date"],
+                        "date": item.get("date"),
                         "type": "Activity",
-                        "metric": item["activity_type"],
+                        "metric": item.get("activity_type"),
                         "value": item.get("duration", 0),
                         "unit": "min",
                     }
                 )
 
             # 3. Create DataFrame and Export
-            master_df = pd.DataFrame(master_data).sort_values(
-                by="date", ascending=False
-            )
-            csv = master_df.to_csv(index=False).encode("utf-8")
+            if master_data:
+                master_df = pd.DataFrame(master_data).sort_values(
+                    by="date", ascending=False
+                )
+                csv = master_df.to_csv(index=False).encode("utf-8")
 
-            st.download_button(
-                label="📥 Download Universal_Health_Ledger.csv",
-                data=csv,
-                file_name=f"health_master_{datetime.now().date()}.csv",
-                mime="text/csv",
-            )
-            st.dataframe(master_df.head(10))  # Preview
+                st.download_button(
+                    label="📥 Download Universal_Health_Ledger.csv",
+                    data=csv,
+                    file_name=f"health_master_{datetime.now().date()}.csv",
+                    mime="text/csv",
+                )
+                st.write("### Preview (Newest 10 Entries)")
+                st.dataframe(master_df.head(10))
+            else:
+                st.warning("No data found in any tables to export.")
 
         except Exception as e:
             st.error(f"Master Export failed: {e}")
