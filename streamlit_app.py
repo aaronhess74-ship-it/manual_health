@@ -630,7 +630,7 @@ with tab4:
         "Generate a Master Ledger for Google Sheets (includes every meal and vital)."
     )
 
-    if st.button("🚀 Prepare Master CSV"):
+    if st.button("🚀 Prepare Master CSV", key="master_global_export_button"):
         try:
             # 1. Fetch Raw Data
             logs_res = supabase.table("daily_logs").select("*").execute()
