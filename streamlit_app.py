@@ -156,122 +156,71 @@ with tab1:
             st.warning("Only Admin can add new items to global library.")
 
 # --- TAB 2: HEALTH METRICS (NEW TRENDS) ---
+# --- TAB 2: HEALTH METRICS ---
 with tab2:
     try:
-        res = (
-            supabase.table("health_metrics")
-            .select("*")
-            .eq("user_id", active_user)
-            .order("date", desc=False)
-            .execute()
-        )
+        # 1. Fetch data filtered by active_user (Admin or Guest)
+        res = supabase.table("health_metrics").select("*").eq("user_id", active_user).order("date", desc=False).execute()
         df_v = pd.DataFrame(res.data) if res.data else pd.DataFrame()
 
         if not df_v.empty:
-            df_v["ts"] = pd.to_datetime(
-                df_v["date"].astype(str)
-                + " "
-                + df_v["time"].fillna("00:00:00").astype(str)
-            )
+            # Create a clean timestamp for the X-axis and tooltips
+            df_v["ts"] = pd.to_datetime(df_v["date"].astype(str) + " " + df_v["time"].fillna("00:00:00").astype(str))
+            # Format a string for the tooltip: "Oct 24, 01:56 PM"
+            df_v["display_time"] = df_v["ts"].dt.strftime('%b %d, %I:%M %p')
 
-            # --- TREND 1: WEIGHT ---
-            st.subheader(f"⚖️ {active_user.title()} Weight Trend")
-            w_df = df_v.dropna(subset=["weight_lb"])
+            st.subheader(f"📊 {active_user.title()} Health Trends")
+
+            # --- WEIGHT CHART ---
+            w_df = df_v.dropna(subset=['weight_lb'])
             if not w_df.empty:
-                w_chart = (
-                    alt.Chart(w_df)
-                    .mark_line(point=True, color="#3498db")
-                    .encode(
-                        x="ts:T", y=alt.Y("weight_lb:Q", scale=alt.Scale(zero=False))
-                    )
-                    .properties(height=250)
-                )
+                w_chart = alt.Chart(w_df).mark_line(point=True, color='#3498db').encode(
+                    x=alt.X('ts:T', title="Timeline", axis=alt.Axis(format='%b %d', labelAngle=-45)),
+                    y=alt.Y('weight_lb:Q', scale=alt.Scale(domain=[100, 300]), title="Weight (lbs)"),
+                    tooltip=[
+                        alt.Tooltip('display_time:N', title='Date/Time'),
+                        alt.Tooltip('weight_lb:Q', title='Weight')
+                    ]
+                ).properties(height=300).interactive()
                 st.altair_chart(w_chart, use_container_width=True)
 
-            # --- TREND 2: BLOOD PRESSURE ---
-            st.subheader(f"❤️ {active_user.title()} Blood Pressure Trend")
-            bp_df = df_v.dropna(
-                subset=["blood_pressure_systolic", "blood_pressure_diastolic"]
-            )
+            # --- BLOOD PRESSURE CHART ---
+            bp_df = df_v.dropna(subset=['blood_pressure_systolic', 'blood_pressure_diastolic'])
             if not bp_df.empty:
-                # Melting data for Altair multi-line chart
                 bp_melted = bp_df.melt(
-                    id_vars=["ts"],
-                    value_vars=["blood_pressure_systolic", "blood_pressure_diastolic"],
-                    var_name="Metric",
-                    value_name="Value",
+                    id_vars=['ts', 'display_time'], 
+                    value_vars=['blood_pressure_systolic', 'blood_pressure_diastolic'],
+                    var_name='Metric', value_name='mmHg'
                 )
-                bp_chart = (
-                    alt.Chart(bp_melted)
-                    .mark_line(point=True)
-                    .encode(
-                        x="ts:T", y=alt.Y("Value:Q", title="mmHg"), color="Metric:N"
-                    )
-                    .properties(height=250)
-                )
+                bp_chart = alt.Chart(bp_melted).mark_line(point=True).encode(
+                    x=alt.X('ts:T', title="Timeline", axis=alt.Axis(format='%b %d', labelAngle=-45)),
+                    y=alt.Y('mmHg:Q', scale=alt.Scale(domain=[40, 200])),
+                    color='Metric:N',
+                    tooltip=[
+                        alt.Tooltip('display_time:N', title='Date/Time'),
+                        alt.Tooltip('Metric:N'),
+                        alt.Tooltip('mmHg:Q')
+                    ]
+                ).properties(height=300).interactive()
                 st.altair_chart(bp_chart, use_container_width=True)
 
-            # --- TREND 3: GLUCOSE ---
-            st.subheader(f"🩸 {active_user.title()} Glucose Trend")
-            g_df = df_v.dropna(subset=["blood_glucose"])
+            # --- GLUCOSE CHART ---
+            g_df = df_v.dropna(subset=['blood_glucose'])
             if not g_df.empty:
-                g_chart = (
-                    alt.Chart(g_df)
-                    .mark_line(point=True, color="#e74c3c")
-                    .encode(x="ts:T", y=alt.Y("blood_glucose:Q", title="mg/dL"))
-                    .properties(height=250)
-                )
+                g_chart = alt.Chart(g_df).mark_line(point=True, color='#e74c3c').encode(
+                    x=alt.X('ts:T', title="Timeline", axis=alt.Axis(format='%b %d', labelAngle=-45)),
+                    y=alt.Y('blood_glucose:Q', scale=alt.Scale(domain=[50, 250]), title="mg/dL"),
+                    tooltip=[
+                        alt.Tooltip('display_time:N', title='Date/Time'),
+                        alt.Tooltip('blood_glucose:Q', title='Glucose')
+                    ]
+                ).properties(height=300).interactive()
                 st.altair_chart(g_chart, use_container_width=True)
+        else:
+            st.info(f"No health metrics found for {active_user}.")
 
         st.divider()
-        st.subheader("➕ Log New Metrics")
-        c_bp, c_wt, c_gl = st.columns(3)
-        now = datetime.now()
-        with c_bp:
-            with st.expander("❤️ BP", expanded=True):
-                sys, dia = (
-                    st.number_input("Sys", 0, 250, 120),
-                    st.number_input("Dia", 0, 150, 80),
-                )
-                if st.button("Log BP"):
-                    supabase.table("health_metrics").insert(
-                        {
-                            "date": str(now.date()),
-                            "time": now.strftime("%H:%M:%S"),
-                            "blood_pressure_systolic": sys,
-                            "blood_pressure_diastolic": dia,
-                            "user_id": record_owner,
-                        }
-                    ).execute()
-                    st.rerun()
-        with c_wt:
-            with st.expander("⚖️ Weight", expanded=True):
-                wt_val = st.number_input("Lbs", 0.0, 500.0, 180.0)
-                if st.button("Log Weight"):
-                    supabase.table("health_metrics").insert(
-                        {
-                            "date": str(now.date()),
-                            "time": now.strftime("%H:%M:%S"),
-                            "weight_lb": wt_val,
-                            "user_id": record_owner,
-                        }
-                    ).execute()
-                    st.rerun()
-        with c_gl:
-            with st.expander("🩸 Glucose", expanded=True):
-                gl_val = st.number_input("mg/dL", 0, 500, 100)
-                if st.button("Log Glucose"):
-                    supabase.table("health_metrics").insert(
-                        {
-                            "date": str(now.date()),
-                            "time": now.strftime("%H:%M:%S"),
-                            "blood_glucose": gl_val,
-                            "user_id": record_owner,
-                        }
-                    ).execute()
-                    st.rerun()
-    except Exception as e:
-        st.error(f"Health Error: {e}")
+        # ... (Rest of your Add New Measurement code)
 
 # --- TAB 3: ACTIVITY (RESTORED ENDURANCE) ---
 with tab3:
