@@ -187,7 +187,7 @@ with tab1:
                 supabase.table("daily_logs").delete().eq(col_n, l_id).execute()
                 st.rerun()
 
-# --- TAB 2: HEALTH METRICS (EDIT & DELETE WITH CORRECT SCHEMA) ---
+# --- TAB 2: HEALTH METRICS (EDIT + ALL 3 CHARTS RESTORED) ---
 with tab2:
     try:
         # 1. Fetch data
@@ -200,47 +200,98 @@ with tab2:
         )
         df_h = pd.DataFrame(h_res.data) if h_res.data else pd.DataFrame()
 
-        # --- PERFECTED CHARTS (UNTOUCHED) ---
+        # --- ALL 3 PERFECTED CHARTS ---
         if not df_h.empty:
+            # Standardize Timestamp and Tooltip String for all charts
             df_h["ts"] = pd.to_datetime(
                 df_h["date"].astype(str)
                 + " "
                 + df_h["time"].fillna("00:00:00").astype(str)
             )
             df_h["display_time"] = df_h["ts"].dt.strftime("%b %d, %I:%M %p")
+
             st.subheader("📊 Health Trends")
 
-            w_chart = (
-                alt.Chart(df_h.dropna(subset=["weight_lb"]))
-                .mark_line(point=True, color="#3498db")
-                .encode(
-                    x=alt.X("ts:T", title="Timeline"),
-                    y=alt.Y(
-                        "weight_lb:Q", scale=alt.Scale(zero=False), title="Weight (lbs)"
-                    ),
+            # A. Weight Chart
+            df_w = df_h.dropna(subset=["weight_lb"])
+            if not df_w.empty:
+                w_chart = (
+                    alt.Chart(df_w)
+                    .mark_line(point=True, color="#3498db")
+                    .encode(
+                        x=alt.X("ts:T", title="Timeline"),
+                        y=alt.Y(
+                            "weight_lb:Q",
+                            scale=alt.Scale(zero=False),
+                            title="Weight (lbs)",
+                        ),
+                        tooltip=[
+                            alt.Tooltip("display_time", title="Logged At"),
+                            alt.Tooltip("weight_lb", title="Weight"),
+                        ],
+                    )
+                    .properties(height=220)
+                )
+                st.altair_chart(w_chart, use_container_width=True)
+
+            # B. Blood Pressure Chart (Systolic & Diastolic)
+            df_bp = df_h.dropna(
+                subset=["blood_pressure_systolic", "blood_pressure_diastolic"]
+            )
+            if not df_bp.empty:
+                bp_base = alt.Chart(df_bp).encode(x=alt.X("ts:T", title="Timeline"))
+                sys_line = bp_base.mark_line(point=True, color="#e74c3c").encode(
+                    y=alt.Y("blood_pressure_systolic:Q", title="Blood Pressure"),
                     tooltip=[
                         alt.Tooltip("display_time", title="Logged At"),
-                        alt.Tooltip("weight_lb", title="Weight"),
+                        alt.Tooltip("blood_pressure_systolic", title="Systolic"),
                     ],
                 )
-                .properties(height=220)
-            )
-            st.altair_chart(w_chart, use_container_width=True)
-            # (Other charts for BP/Glucose follow same logic if data exists)
+                dia_line = bp_base.mark_line(point=True, color="#c0392b").encode(
+                    y="blood_pressure_diastolic:Q",
+                    tooltip=[
+                        alt.Tooltip("display_time", title="Logged At"),
+                        alt.Tooltip("blood_pressure_diastolic", title="Diastolic"),
+                    ],
+                )
+                st.altair_chart(
+                    (sys_line + dia_line).properties(height=220),
+                    use_container_width=True,
+                )
+
+            # C. Glucose Chart
+            df_g = df_h.dropna(subset=["blood_glucose"])
+            if not df_g.empty:
+                g_chart = (
+                    alt.Chart(df_g)
+                    .mark_line(point=True, color="#27ae60")
+                    .encode(
+                        x=alt.X("ts:T", title="Timeline"),
+                        y=alt.Y(
+                            "blood_glucose:Q",
+                            scale=alt.Scale(zero=False),
+                            title="Glucose (mg/dL)",
+                        ),
+                        tooltip=[
+                            alt.Tooltip("display_time", title="Logged At"),
+                            alt.Tooltip("blood_glucose", title="Glucose"),
+                        ],
+                    )
+                    .properties(height=220)
+                )
+                st.altair_chart(g_chart, use_container_width=True)
 
         st.divider()
 
-        # --- INPUTS (STYLING PRESERVED + EDIT LOGIC) ---
+        # --- INPUTS (WITH EDIT LOGIC) ---
         st.subheader("➕ Manual Entries")
 
-        # Session State for Editing
         edit_id = st.session_state.get("editing_health_id", None)
         edit_vals = st.session_state.get("editing_health_vals", {})
 
         m_c1, m_c2, m_c3 = st.columns(3)
         with m_c1:
             st.info("⚖️ Weight")
-            # Uses existing value if editing, otherwise 0.0
             wv = st.number_input(
                 "Lbs", 0.0, value=float(edit_vals.get("weight_lb") or 0.0), key="w_in"
             )
@@ -352,7 +403,6 @@ with tab2:
 
                 hc1.write(f"**{r.get('date')}** | {', '.join(parts)}")
 
-                # Correct Primary Key Mapping
                 m_id = r.get("metric_id")
 
                 if hc3.button("✏️", key=f"ed_{m_id}"):
