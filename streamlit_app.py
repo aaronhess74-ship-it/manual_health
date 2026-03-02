@@ -14,6 +14,31 @@ st.set_page_config(
     page_title="Health Dashboard Pro", layout="wide", initial_sidebar_state="collapsed"
 )
 
+
+# Simple Password Gate
+def check_password():
+    if "authenticated" not in st.session_state:
+        st.session_state.authenticated = False
+
+    if not st.session_state.authenticated:
+        with st.form("login_form"):
+            st.subheader("🔒 Tester Access")
+            password = st.text_input("Enter Access Code", type="password")
+            if st.form_submit_button("Login"):
+                if (
+                    password == st.secrets["GUEST_PASSWORD"]
+                ):  # Add this to your Streamlit Secrets
+                    st.session_state.authenticated = True
+                    st.rerun()
+                else:
+                    st.error("Invalid Code")
+        return False
+    return True
+
+
+if not check_password():
+    st.stop()  # Stops the rest of the app from loading
+
 # --- STYLING ---
 st.markdown(
     """
