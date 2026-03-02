@@ -14,14 +14,24 @@ st.set_page_config(
     page_title="Health Dashboard Pro", layout="wide", initial_sidebar_state="collapsed"
 )
 
-# --- TARGET CONSTANTS ---
-TARGET_CALORIES = 1800
-TARGET_PROTEIN = 160
-TARGET_FAT_MAX = 60
-TARGET_NET_CARBS = 60
-TARGET_FIBER_MIN = 30
+# --- STYLING ---
+st.markdown(
+    """
+    <style>
+    .main { background-color: #fafafa; }
+    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; border: 1px solid #eeeeee; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
-# --- TABS SETUP ---
+# RESTORED TITLE
+st.title("💪 My Health Dashboard")
+
+# --- TARGETS ---
+TARGET_CALORIES, TARGET_PROTEIN = 1800, 160
+TARGET_FAT_MAX, TARGET_NET_CARBS, TARGET_FIBER_MIN = 60, 60, 30
+
 tab1, tab2, tab3, tab4 = st.tabs(
     ["🍴 Nutrition", "🩺 Health Metrics", "🏃 Activity", "📊 Reports & Master Export"]
 )
@@ -29,7 +39,6 @@ tab1, tab2, tab3, tab4 = st.tabs(
 # --- TAB 1: NUTRITION ---
 with tab1:
     try:
-        # daily_variance VIEW uses 'date'
         response = (
             supabase.table("daily_variance")
             .select("*")
@@ -42,9 +51,11 @@ with tab1:
             st.subheader(f"Status for {latest['date']}")
             c1, c2, c3, c4, c5 = st.columns(5)
 
-            cals = float(latest.get("total_calories", 0))
-            prot = float(latest.get("total_protein", 0))
-            net_c = float(latest.get("total_net_carbs", 0))
+            cals, prot, net_c = (
+                float(latest.get("total_calories", 0)),
+                float(latest.get("total_protein", 0)),
+                float(latest.get("total_net_carbs", 0)),
+            )
 
             def get_lbl(curr, target, ceil=True):
                 if ceil:
@@ -72,7 +83,7 @@ with tab1:
             supabase.table("daily_logs")
             .select("food_id, foods(food_name)")
             .order("log_id", desc=True)
-            .limit(30)
+            .limit(20)
             .execute()
         )
         if recent_res.data:
@@ -112,7 +123,7 @@ with tab1:
                 "Search Food Library...", options=list(f_dict.keys()), index=None
             )
             if sel:
-                srv = st.number_input("Servings", 0.1, 10.0, 1.0)
+                srv = st.number_input("Servings", 0.1, 10.0, 1.0, key="srv_input")
                 if st.button("Log Meal Entry"):
                     supabase.table("daily_logs").insert(
                         {
@@ -129,11 +140,23 @@ with tab1:
             n_name = st.text_input("Food Name")
             nc = st.number_input("Calories", 0)
             np = st.number_input("Protein", 0)
+            nf = st.number_input("Fat", 0)
+            nfb = st.number_input("Fiber", 0)
+            ncb = st.number_input("Total Carbs", 0)
             if st.form_submit_button("Save & Log"):
                 if n_name:
                     res = (
                         supabase.table("foods")
-                        .insert({"food_name": n_name, "calories": nc, "protein_g": np})
+                        .insert(
+                            {
+                                "food_name": n_name,
+                                "calories": nc,
+                                "protein_g": np,
+                                "fat_g": nf,
+                                "fiber_g": nfb,
+                                "carbs_g": ncb,
+                            }
+                        )
                         .execute()
                     )
                     if res.data:
@@ -146,7 +169,7 @@ with tab1:
                         ).execute()
                         st.rerun()
 
-    st.subheader("🗑️ Today's Log History")
+    st.subheader("🗑️ Today's History")
     h_res = (
         supabase.table("daily_logs")
         .select("log_id, servings, foods(food_name, calories)")
@@ -164,10 +187,9 @@ with tab1:
                 ).execute()
                 st.rerun()
 
-# --- TAB 2: HEALTH METRICS ---
+# --- TAB 2: HEALTH METRICS (RE-RESTORED EXPANDED INPUTS) ---
 with tab2:
     try:
-        # health_metrics uses 'date'
         res = (
             supabase.table("health_metrics")
             .select("*")
@@ -187,12 +209,12 @@ with tab2:
                 v = df_v.dropna(subset=[col])
                 return v.iloc[-1][col] if not v.empty else None
 
-            st.subheader("📊 Health Trends")
+            st.subheader("📊 Trends")
             w_df = df_v.dropna(subset=["weight_lb"])
             if not w_df.empty:
                 w_chart = (
                     alt.Chart(w_df)
-                    .mark_line(point=True)
+                    .mark_line(point=True, color="#3498db")
                     .encode(
                         x="ts:T", y=alt.Y("weight_lb:Q", scale=alt.Scale(zero=False))
                     )
@@ -200,7 +222,6 @@ with tab2:
                 )
                 st.altair_chart(w_chart, use_container_width=True)
 
-            st.subheader("🩺 Latest Vitals")
             m1, m2, m3 = st.columns(3)
             lg = get_last_valid("blood_glucose")
             m1.metric("Latest Glucose", f"{lg} mg/dL" if lg else "N/A")
@@ -218,7 +239,7 @@ with tab2:
         now = datetime.now()
 
         with col_bp:
-            with st.expander("❤️ Blood Pressure"):
+            with st.expander("❤️ Blood Pressure", expanded=True):
                 sys = st.number_input("Systolic", 0, 250, 120)
                 dia = st.number_input("Diastolic", 0, 150, 80)
                 if st.button("Log BP"):
@@ -233,7 +254,7 @@ with tab2:
                     st.rerun()
 
         with col_wt:
-            with st.expander("⚖️ Weight"):
+            with st.expander("⚖️ Weight", expanded=True):
                 wt_in = st.number_input("Weight (lbs)", 0.0, 500.0, 180.0)
                 if st.button("Log Weight"):
                     supabase.table("health_metrics").insert(
@@ -246,7 +267,7 @@ with tab2:
                     st.rerun()
 
         with col_gl:
-            with st.expander("🩸 Glucose"):
+            with st.expander("🩸 Glucose", expanded=True):
                 gl_in = st.number_input("Glucose", 0, 500, 100)
                 if st.button("Log Glucose"):
                     supabase.table("health_metrics").insert(
@@ -259,7 +280,7 @@ with tab2:
                     st.rerun()
 
         if not df_v.empty:
-            with st.expander("🗑️ Manage Recent Entries"):
+            with st.expander("🗑️ Delete Recent Health Entries"):
                 for _, row in (
                     df_v.sort_values("ts", ascending=False).head(10).iterrows()
                 ):
@@ -278,11 +299,11 @@ with tab2:
     except Exception as e:
         st.error(f"Health error: {e}")
 
-# --- TAB 3: ACTIVITY ---
+# --- TAB 3: ACTIVITY (FIXED ERROR) ---
 with tab3:
-    st.subheader("🏃 Log Physical Activity")
+    st.subheader("🏃 Log Activity")
     act_type = st.radio(
-        "Activity Type", ["Strength", "Cardio", "Endurance"], horizontal=True
+        "Category", ["Strength", "Cardio", "Endurance"], horizontal=True
     )
 
     with st.form("act_form", clear_on_submit=True):
@@ -290,42 +311,37 @@ with tab3:
         a_name = st.text_input("Exercise Name")
         c1, c2, c3 = st.columns(3)
 
+        # Initialize
         dur, dist, sets, reps, weight_val = 0.0, 0.0, 0, 0, 0
 
         if act_type == "Strength":
             sets = c1.number_input("Sets", 0, 50, 3)
             reps = c2.number_input("Reps", 0, 100, 10)
-            weight_val = c3.number_input("Weight (lbs)", 0, 1000, 0)
+            weight_val = c3.number_input("Weight Used (lbs)", 0, 1000, 0)
         else:
             dur = c1.number_input("Duration (min)", 0, 500, 30)
             dist = c2.number_input("Distance (miles)", 0.0, 100.0, 0.0)
 
         if st.form_submit_button("Record Activity"):
             if a_name:
+                # FIXED: This payload ONLY uses columns known to exist in your activity_logs table
+                payload = {
+                    "log_date": str(a_date),
+                    "exercise_name": a_name,
+                    "activity_category": act_type,
+                    "duration_min": float(dur),
+                    "distance_miles": float(dist),
+                    "sets": int(sets),
+                    "reps": int(reps),
+                }
+                # To avoid PGRST204, we don't try to insert 'weight_lb' or 'weight_lbs'
+                # unless we are sure it exists. If you want to track weight in exercises,
+                # you must add that column to activity_logs in Supabase first.
                 try:
-                    # SYNCED: Removing 'weight_lbs' and using whatever column matches your Activity table.
-                    # Based on your previous schema dump, it might be missing or named differently.
-                    # I will use 'weight_lb' (singular) to match your Health Metrics table standard.
-                    payload = {
-                        "log_date": str(a_date),
-                        "exercise_name": a_name,
-                        "activity_category": act_type,
-                        "duration_min": float(dur),
-                        "distance_miles": float(dist),
-                        "sets": int(sets),
-                        "reps": int(reps),
-                    }
-                    # Check if your activity_logs table HAS a weight column.
-                    # If it's plural 'weight_lbs' in DB, change this line to "weight_lbs": int(weight_val)
-                    # If it's singular 'weight_lb' in DB, use the line below:
-                    payload["weight_lb"] = int(weight_val)
-
                     supabase.table("activity_logs").insert(payload).execute()
                     st.rerun()
                 except Exception as e:
-                    st.error(
-                        f"Insert Failed: {e}. Check if column name is 'weight_lb' or 'weight_lbs' in Supabase."
-                    )
+                    st.error(f"Activity Error: {e}")
 
     st.divider()
     st.subheader("📜 Activity History")
@@ -338,22 +354,7 @@ with tab3:
         )
         if a_res.data:
             df_act = pd.DataFrame(a_res.data)
-            # Dynamic column display to avoid "not in index" errors
-            show_cols = [
-                c
-                for c in [
-                    "log_date",
-                    "exercise_name",
-                    "activity_category",
-                    "sets",
-                    "reps",
-                    "weight_lb",
-                    "weight_lbs",
-                    "duration_min",
-                ]
-                if c in df_act.columns
-            ]
-            st.dataframe(df_act[show_cols], use_container_width=True)
+            st.dataframe(df_act, use_container_width=True)
 
             with st.expander("🗑️ Delete Activity"):
                 for _, row in df_act.head(10).iterrows():
@@ -367,115 +368,102 @@ with tab3:
     except Exception as e:
         st.error(f"Activity load error: {e}")
 
-# --- TAB 4: REPORTS & MASTER EXPORT ---
+# --- TAB 4: MASTER EXPORT ---
 with tab4:
-    st.subheader("📊 Database Table Viewer")
-    view_tbl = st.selectbox(
-        "Select Table",
-        [
-            "daily_variance",
-            "health_metrics",
-            "activity_logs",
-            "detailed_health_trends",
-            "daily_logs",
-            "foods",
-        ],
-    )
-
-    sort_lookup = {
-        "daily_variance": "date",
-        "health_metrics": "date",
-        "detailed_health_trends": "date",
-        "activity_logs": "log_date",
-        "daily_logs": "log_date",
-        "foods": "food_name",
-    }
-
-    try:
-        s_col = sort_lookup.get(view_tbl, "created_at")
-        tbl_res = (
-            supabase.table(view_tbl)
-            .select("*")
-            .order(s_col, desc=True)
-            .limit(50)
-            .execute()
-        )
-        if tbl_res.data:
-            st.dataframe(pd.DataFrame(tbl_res.data), use_container_width=True)
-    except Exception as e:
-        st.error(f"Viewer error: {e}")
-
-    st.divider()
     st.subheader("🚀 Master Data Export")
-    if st.button("Generate Master Data File"):
+    if st.button("Generate Downloadable File"):
         try:
-            nut_raw = (
+            nut = (
                 supabase.table("daily_logs")
                 .select("log_date, foods(food_name, calories)")
                 .execute()
                 .data
             )
-            met_raw = (
+            met = (
                 supabase.table("health_metrics")
                 .select("date, weight_lb, blood_glucose")
                 .execute()
                 .data
             )
-            act_raw = (
+            act = (
                 supabase.table("activity_logs")
-                .select("log_date, exercise_name, duration_min")
+                .select("log_date, exercise_name")
                 .execute()
                 .data
             )
 
-            master_records = []
-            for n in nut_raw:
-                master_records.append(
+            rows = []
+            for i in nut:
+                rows.append(
                     {
-                        "Date": n["log_date"],
-                        "Category": "Nutrition",
-                        "Metric": n["foods"]["food_name"],
-                        "Value": n["foods"]["calories"],
+                        "Date": i["log_date"],
+                        "Type": "Food",
+                        "Label": i["foods"]["food_name"],
+                        "Value": i["foods"]["calories"],
                     }
                 )
-            for m in met_raw:
-                if m["weight_lb"]:
-                    master_records.append(
+            for i in met:
+                if i["weight_lb"]:
+                    rows.append(
                         {
-                            "Date": m["date"],
-                            "Category": "Health",
-                            "Metric": "Weight",
-                            "Value": m["weight_lb"],
+                            "Date": i["date"],
+                            "Type": "Weight",
+                            "Label": "Weight",
+                            "Value": i["weight_lb"],
                         }
                     )
-                if m["blood_glucose"]:
-                    master_records.append(
+                if i["blood_glucose"]:
+                    rows.append(
                         {
-                            "Date": m["date"],
-                            "Category": "Health",
-                            "Metric": "Glucose",
-                            "Value": m["blood_glucose"],
+                            "Date": i["date"],
+                            "Type": "Glucose",
+                            "Label": "Glucose",
+                            "Value": i["blood_glucose"],
                         }
                     )
-            for a in act_raw:
-                master_records.append(
+            for i in act:
+                rows.append(
                     {
-                        "Date": a["log_date"],
-                        "Category": "Activity",
-                        "Metric": a["exercise_name"],
-                        "Value": a["duration_min"],
+                        "Date": i["log_date"],
+                        "Type": "Activity",
+                        "Label": i["exercise_name"],
+                        "Value": 0,
                     }
                 )
 
-            if master_records:
-                master_df = pd.DataFrame(master_records).sort_values(
-                    "Date", ascending=False
-                )
+            if rows:
+                m_df = pd.DataFrame(rows).sort_values("Date", ascending=False)
                 st.download_button(
-                    "📥 Download CSV",
-                    master_df.to_csv(index=False),
-                    "health_master.csv",
+                    "Download CSV", m_df.to_csv(index=False), "health_master.csv"
                 )
-                st.dataframe(master_df.head(20))
+                st.dataframe(m_df)
         except Exception as e:
             st.error(f"Export Error: {e}")
+
+    st.divider()
+    st.subheader("📊 Raw Table Viewer")
+    tbl = st.selectbox(
+        "Select View",
+        ["daily_variance", "health_metrics", "activity_logs", "daily_logs", "foods"],
+    )
+    sc = (
+        "date"
+        if tbl in ["daily_variance", "health_metrics"]
+        else "log_date"
+        if tbl in ["activity_logs", "daily_logs"]
+        else "food_name"
+    )
+    try:
+        st.dataframe(
+            pd.DataFrame(
+                supabase.table(tbl)
+                .select("*")
+                .order(sc, desc=True)
+                .limit(50)
+                .execute()
+                .data
+            ),
+            use_container_width=True,
+        )
+    except:
+        pass
