@@ -324,7 +324,6 @@ with tab3:
 
         if st.form_submit_button("Record Activity"):
             if a_name:
-                # FIXED: This payload ONLY uses columns known to exist in your activity_logs table
                 payload = {
                     "log_date": str(a_date),
                     "exercise_name": a_name,
@@ -333,10 +332,10 @@ with tab3:
                     "distance_miles": float(dist),
                     "sets": int(sets),
                     "reps": int(reps),
+                    "weight_lb": int(
+                        weight_val
+                    ),  # This now matches the SQL we just ran
                 }
-                # To avoid PGRST204, we don't try to insert 'weight_lb' or 'weight_lbs'
-                # unless we are sure it exists. If you want to track weight in exercises,
-                # you must add that column to activity_logs in Supabase first.
                 try:
                     supabase.table("activity_logs").insert(payload).execute()
                     st.rerun()
