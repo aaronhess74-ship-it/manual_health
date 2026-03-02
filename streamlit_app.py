@@ -53,7 +53,6 @@ if st.session_state.is_admin:
 else:
     active_user = "guest"
 
-# Record Owner ensures that even if Admin views Guest data, they write to their own account
 record_owner = "admin" if st.session_state.is_admin else "guest"
 
 # --- TARGETS ---
@@ -76,7 +75,6 @@ with tab1:
             .limit(1)
             .execute()
         )
-
         if response.data:
             latest = response.data[0]
             st.subheader(f"Daily Status: {latest.get('date')} ({active_user.upper()})")
@@ -169,6 +167,26 @@ with tab1:
                         ).execute()
                         st.rerun()
 
+    st.subheader("🗑️ Today's Logged Items")
+    log_res = (
+        supabase.table("daily_logs")
+        .select("*, foods(food_name, calories)")
+        .eq("log_date", str(datetime.now().date()))
+        .eq("user_id", active_user)
+        .execute()
+    )
+    if log_res.data:
+        for r in log_res.data:
+            lc1, lc2, lc3 = st.columns([3, 1, 1])
+            f_info = r.get("foods") or {}
+            lc1.write(f"**{f_info.get('food_name', 'Unknown')}**")
+            lc2.write(f"{int(f_info.get('calories', 0) * r.get('servings', 1))} kcal")
+            l_id = r.get("log_id") or r.get("id")
+            if lc3.button("🗑️", key=f"del_log_{l_id}"):
+                col_n = "log_id" if "log_id" in r else "id"
+                supabase.table("daily_logs").delete().eq(col_n, l_id).execute()
+                st.rerun()
+
 # --- TAB 2: HEALTH METRICS ---
 with tab2:
     try:
@@ -187,9 +205,7 @@ with tab2:
                 + " "
                 + df_h["time"].fillna("00:00:00").astype(str)
             )
-
-            st.subheader("📊 Trends & Progress")
-            # FIXED HEIGHT CHARTS
+            st.subheader("📊 Health Trends")
             w_chart = (
                 alt.Chart(df_h.dropna(subset=["weight_lb"]))
                 .mark_line(point=True, color="#3498db")
@@ -198,14 +214,13 @@ with tab2:
                     y=alt.Y(
                         "weight_lb:Q", scale=alt.Scale(zero=False), title="Weight (lbs)"
                     ),
-                    tooltip=["date", "weight_lb"],
                 )
                 .properties(height=250)
             )
             st.altair_chart(w_chart, use_container_width=True)
 
         st.divider()
-        st.subheader("➕ Manual Health Entry")
+        st.subheader("➕ Manual Entries")
         m_c1, m_c2, m_c3 = st.columns(3)
         with m_c1:
             st.info("⚖️ Weight")
@@ -248,23 +263,52 @@ with tab2:
                     }
                 ).execute()
                 st.rerun()
+
+        st.divider()
+        st.subheader("📜 Recent Health History")
+        hist_res = (
+            supabase.table("health_metrics")
+            .select("*")
+            .eq("user_id", active_user)
+            .order("date", desc=True)
+            .limit(10)
+            .execute()
+        )
+        if hist_res.data:
+            for r in hist_res.data:
+                hc1, hc2, hc3 = st.columns([4, 1, 1])
+                parts = []
+                if r.get("weight_lb"):
+                    parts.append(f"W: {r['weight_lb']}lbs")
+                if r.get("blood_pressure_systolic"):
+                    parts.append(
+                        f"BP: {r['blood_pressure_systolic']}/{r['blood_pressure_diastolic']}"
+                    )
+                if r.get("blood_glucose"):
+                    parts.append(f"G: {r['blood_glucose']}mg/dL")
+                hc1.write(f"**{r.get('date')}** | {', '.join(parts)}")
+                h_id = r.get("metric_id") or r.get("id")
+                if hc3.button("🗑️", key=f"del_h_{h_id}"):
+                    col_n = "metric_id" if "metric_id" in r else "id"
+                    supabase.table("health_metrics").delete().eq(col_n, h_id).execute()
+                    st.rerun()
     except Exception as e:
         st.error(f"Health Tab Error: {e}")
 
 # --- TAB 3: ACTIVITY ---
 with tab3:
-    st.subheader(f"🏃 Activity Logs ({active_user.upper()})")
+    st.subheader(f"🏃 Workout Log")
     with st.form("activity_form", clear_on_submit=True):
         f1, f2 = st.columns(2)
         ex_name = f1.text_input("Exercise Name")
         ex_cat = f2.selectbox("Category", ["Strength", "Cardio", "Endurance"])
-
         m1, m2, m3, m4 = st.columns(4)
-        v_sets = m1.number_input("Sets", 0)
-        v_reps = m2.number_input("Reps", 0)
-        v_weight = m3.number_input("Weight", 0)
-        v_dist = m4.number_input("Miles/Mins", 0.0)
-
+        v_sets, v_reps, v_weight, v_dist = (
+            m1.number_input("Sets", 0),
+            m2.number_input("Reps", 0),
+            m3.number_input("Weight", 0),
+            m4.number_input("Miles/Mins", 0.0),
+        )
         if st.form_submit_button("Log Activity"):
             supabase.table("activity_logs").insert(
                 {
@@ -280,32 +324,23 @@ with tab3:
             ).execute()
             st.rerun()
 
-# --- TAB 4: REPORTS & EXPORT ---
+# --- TAB 4: REPORTS ---
 with tab4:
-    st.subheader("📥 Master Report & Data Export")
-
+    st.subheader("📊 Data Explorer & Master Export")
     report_tbl = st.selectbox(
         "Select Data Source", ["health_metrics", "daily_logs", "activity_logs", "foods"]
     )
-
-    # Logic to filter or show all
     q = supabase.table(report_tbl).select("*")
     if report_tbl != "foods":
         q = q.eq("user_id", active_user)
-
     rep_res = q.order("created_at", desc=True).execute()
-
     if rep_res.data:
-        df_final = pd.DataFrame(rep_res.data)
-        st.dataframe(df_final, use_container_width=True)
-
-        # MASTER EXPORT BUTTON
-        csv = df_final.to_csv(index=False).encode("utf-8")
+        df_rep = pd.DataFrame(rep_res.data)
+        st.dataframe(df_rep, use_container_width=True)
+        csv = df_rep.to_csv(index=False).encode("utf-8")
         st.download_button(
             label=f"💾 Download {report_tbl.replace('_', ' ').title()} as CSV",
             data=csv,
-            file_name=f"{active_user}_{report_tbl}_{datetime.now().strftime('%Y%m%d')}.csv",
+            file_name=f"{active_user}_{report_tbl}.csv",
             mime="text/csv",
         )
-    else:
-        st.info("No data found for this selection.")
