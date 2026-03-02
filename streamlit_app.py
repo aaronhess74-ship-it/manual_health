@@ -459,11 +459,11 @@ with tab3:
                 supabase.table("activity_logs").delete().eq(col_n, a_id).execute()
                 st.rerun()
 
-# --- TAB 4: REPORTS & EXPORTS (RESTORED MASTER EXPORT) ---
+# --- TAB 4: REPORTS & EXPORTS (FIXED MASTER EXPORT) ---
 with tab4:
     st.subheader("📥 Data Management & Master Export")
 
-    # 1. Individual Table Viewer (Existing Feature)
+    # 1. Individual Table Viewer
     report_tbl = st.selectbox(
         "View Individual Table",
         ["health_metrics", "daily_logs", "activity_logs", "foods"],
@@ -473,7 +473,6 @@ with tab4:
     if report_tbl != "foods":
         q = q.eq("user_id", active_user)
 
-    # Table-specific sorting for the viewer
     if report_tbl == "health_metrics":
         rep_res = q.order("date", desc=True).execute()
     elif "logs" in report_tbl:
@@ -487,24 +486,21 @@ with tab4:
 
     st.divider()
 
-    # 2. THE MASTER EXPORT (All tables in one CSV)
+    # 2. THE MASTER EXPORT (Fixed Column Selection)
     st.subheader("🚀 Master CSV Export")
-    st.write(
-        "Click below to generate a single file containing all your health, nutrition, and activity data."
-    )
-
     if st.button("Generate Master Dataset"):
         try:
-            # Fetch all relevant tables
+            # Fetch tables
             h_data = (
                 supabase.table("health_metrics")
                 .select("*")
                 .eq("user_id", active_user)
                 .execute()
             )
+            # We only pull food_name and calories to ensure compatibility with your DB schema
             n_data = (
                 supabase.table("daily_logs")
-                .select("*, foods(food_name, calories, protein_g, net_carbs_g)")
+                .select("*, foods(food_name, calories)")
                 .eq("user_id", active_user)
                 .execute()
             )
@@ -515,12 +511,10 @@ with tab4:
                 .execute()
             )
 
-            # Convert to DataFrames and add Source tags
             df_h = pd.DataFrame(h_data.data)
             if not df_h.empty:
                 df_h["source_table"] = "health_metrics"
 
-            # For nutrition, flatten the food details so they are in the CSV rows
             df_n = pd.json_normalize(n_data.data)
             if not df_n.empty:
                 df_n["source_table"] = "nutrition_logs"
@@ -529,16 +523,18 @@ with tab4:
             if not df_a.empty:
                 df_a["source_table"] = "activity_logs"
 
-            # Merge all into one Master DataFrame
+            # Merge
             master_df = pd.concat([df_h, df_n, df_a], axis=0, ignore_index=True)
 
-            # Reorder columns to put Date and Source first for better external charting
-            cols = master_df.columns.tolist()
-            if "date" in cols and "log_date" in cols:
-                # Fill missing dates from log_date if date is empty (common in merged datasets)
+            # Create Unified Date Column
+            if "date" in master_df.columns and "log_date" in master_df.columns:
                 master_df["unified_date"] = master_df["date"].fillna(
                     master_df["log_date"]
                 )
+            elif "date" in master_df.columns:
+                master_df["unified_date"] = master_df["date"]
+            elif "log_date" in master_df.columns:
+                master_df["unified_date"] = master_df["log_date"]
 
             csv_master = master_df.to_csv(index=False).encode("utf-8")
 
