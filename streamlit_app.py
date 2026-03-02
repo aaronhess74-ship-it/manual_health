@@ -59,7 +59,7 @@ record_owner = "admin" if st.session_state.is_admin else "guest"
 # --- TARGETS ---
 TARGET_CALORIES, TARGET_PROTEIN = 1800, 160
 TARGET_FAT_MAX, TARGET_FIBER_MIN = 60, 30
-NC_LOW, NC_HIGH = 50, 100  # Net Carb Green Range
+NC_LIMIT = 100
 
 tab1, tab2, tab3, tab4 = st.tabs(
     ["🍴 Nutrition", "🩺 Health Metrics", "🏃 Activity", "📊 Reports"]
@@ -90,17 +90,14 @@ with tab1:
                 float(latest.get("total_fiber", 0)),
             )
 
-            nc_status = "🟢" if NC_LOW <= net_c <= NC_HIGH else "🔴"
+            # Net Carbs: Green if <= 100
+            nc_status = "🟢" if net_c <= NC_LIMIT else "🔴"
 
             c1.metric("Calories", f"{int(cals)}", f"{int(TARGET_CALORIES - cals)} Left")
             c2.metric(
                 "Protein", f"{int(prot)}g", f"{int(prot - TARGET_PROTEIN)}g vs Goal"
             )
-            c3.metric(
-                f"Net Carbs {nc_status}",
-                f"{int(net_c)}g",
-                f"Target: {NC_LOW}-{NC_HIGH}g",
-            )
+            c3.metric(f"Net Carbs {nc_status}", f"{int(net_c)}g", f"Limit: {NC_LIMIT}g")
             c4.metric("Fat", f"{int(fat)}g", f"Max: {TARGET_FAT_MAX}g")
             c5.metric("Fiber", f"{int(fib)}g", f"Min: {TARGET_FIBER_MIN}g")
     except Exception as e:
@@ -160,8 +157,6 @@ with tab1:
                             }
                         ).execute()
                         st.rerun()
-        else:
-            st.info("Custom food entry is locked for Guest.")
 
     st.divider()
     st.subheader("🗑️ Today's Logged Items")
@@ -237,7 +232,6 @@ with tab2:
                 s2.caption(f"Logged: {last_bp['display_time']}")
             if last_g is not None:
                 g = last_g["blood_glucose"]
-                # Glucose Green Zone: 80 - 130
                 g_icon = "🟢" if 80 <= g <= 130 else "🔴"
                 s3.metric("Glucose", f"{int(g)} mg/dL", f"{g_icon} (Target: 80-130)")
                 s3.caption(f"Logged: {last_g['display_time']}")
@@ -270,8 +264,10 @@ with tab2:
         with c1:
             with st.expander("⚖️ Log Weight", expanded=True):
                 wv = st.number_input("Weight lbs", 0.0, key="manual_w")
-                wd = st.date_input("Date", now, key="wd_w")
-                wt = st.time_input("Time", now, key="wt_w")
+                wd, wt = (
+                    st.date_input("Date", now, key="wd_w"),
+                    st.time_input("Time", now, key="wt_w"),
+                )
                 if st.button("Save Weight"):
                     supabase.table("health_metrics").insert(
                         {
@@ -331,7 +327,6 @@ with tab3:
         f1, f2 = st.columns(2)
         da, nm = f1.date_input("Date", datetime.now()), f2.text_input("Exercise Name")
         c1, c2, c3, c4, c5 = st.columns(5)
-        # Endurance unlocks all inputs
         s = c1.number_input("Sets", 0) if cat in ["Strength", "Endurance"] else 0
         r = c2.number_input("Reps", 0) if cat in ["Strength", "Endurance"] else 0
         w = c3.number_input("Weight", 0) if cat in ["Strength", "Endurance"] else 0
@@ -382,3 +377,26 @@ with tab4:
         res = q.order(sort, desc=True).limit(50).execute()
         if res.data:
             st.dataframe(pd.DataFrame(res.data), use_container_width=True)
+
+    # --- MASTER EXPORT (OUTSIDE OF VIEWER LOGIC) ---
+    st.divider()
+    st.subheader("📥 Master Export")
+    if st.button("Prepare Health Data Export"):
+        try:
+            exp = (
+                supabase.table("health_metrics")
+                .select("*")
+                .eq("user_id", active_user)
+                .execute()
+                .data
+            )
+            if exp:
+                st.download_button(
+                    "Download CSV",
+                    data=pd.DataFrame(exp).to_csv(index=False).encode("utf-8"),
+                    file_name=f"{active_user}_health_export.csv",
+                )
+            else:
+                st.info("No records found for export.")
+        except Exception as e:
+            st.error(f"Export Error: {e}")
