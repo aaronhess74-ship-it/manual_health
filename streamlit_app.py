@@ -35,7 +35,8 @@ with tab1:
         response = supabase.table("daily_variance").select("*").execute()
         if response.data:
             latest = response.data[0]
-            st.subheader(f"Status for {latest.get('date')}")
+            # Updated to log_date
+            st.subheader(f"Status for {latest.get('log_date', 'Today')}")
             c1, c2, c3, c4, c5 = st.columns(5)
 
             cals = float(latest.get("total_calories", 0))
@@ -111,6 +112,7 @@ with tab1:
                 cols = st.columns(len(quick_foods))
                 for i, f in enumerate(quick_foods):
                     if cols[i].button(f"➕ {f['name']}", key=f"q_{f['id']}"):
+                        # Updated to log_date
                         supabase.table("daily_logs").insert(
                             {
                                 "food_id": f["id"],
@@ -136,6 +138,7 @@ with tab1:
                 food = f_dict[sel]
                 srv = st.number_input("Servings", min_value=0.0, value=1.0, step=0.1)
                 if st.button("Log Meal"):
+                    # Updated to log_date
                     supabase.table("daily_logs").insert(
                         {
                             "food_id": food["food_id"],
@@ -173,6 +176,7 @@ with tab1:
                         .execute()
                     )
                     if res.data:
+                        # Updated to log_date
                         supabase.table("daily_logs").insert(
                             {
                                 "food_id": res.data[0]["food_id"],
@@ -183,6 +187,7 @@ with tab1:
                         st.rerun()
 
     st.subheader("📜 Today's History")
+    # Updated to log_date
     h_res = (
         supabase.table("daily_logs")
         .select("log_id, servings, foods(food_name, calories)")
@@ -203,17 +208,19 @@ with tab1:
 # --- TAB 2: HEALTH METRICS ---
 with tab2:
     try:
+        # Sort by log_date
         res = (
             supabase.table("health_metrics")
             .select("*")
-            .order("date", desc=False)
+            .order("log_date", desc=False)
             .execute()
         )
         df_v = pd.DataFrame(res.data) if res.data else pd.DataFrame()
 
         if not df_v.empty:
+            # Updated to log_date
             df_v["ts"] = pd.to_datetime(
-                df_v["date"].astype(str)
+                df_v["log_date"].astype(str)
                 + " "
                 + df_v["time"].fillna("00:00:00").astype(str)
             )
@@ -287,9 +294,10 @@ with tab2:
                 sys = st.number_input("Systolic", 0, 300, 120)
                 dia = st.number_input("Diastolic", 0, 200, 80)
                 if st.button("Log BP"):
+                    # Updated to log_date
                     supabase.table("health_metrics").insert(
                         {
-                            "date": d_bp.isoformat(),
+                            "log_date": d_bp.isoformat(),
                             "time": t_bp.strftime("%H:%M:%S"),
                             "blood_pressure_systolic": sys,
                             "blood_pressure_diastolic": dia,
@@ -303,9 +311,10 @@ with tab2:
                 t_wt = st.time_input("Time", now.time(), key="t_wt")
                 w_wt = st.number_input("Weight (lbs)", 0.0, 500.0, 180.0)
                 if st.button("Log Weight"):
+                    # Updated to log_date
                     supabase.table("health_metrics").insert(
                         {
-                            "date": d_wt.isoformat(),
+                            "log_date": d_wt.isoformat(),
                             "time": t_wt.strftime("%H:%M:%S"),
                             "weight_lb": w_wt,
                         }
@@ -318,9 +327,10 @@ with tab2:
                 t_gl = st.time_input("Time", now.time(), key="t_gl")
                 g_gl = st.number_input("Glucose", 0, 500, 100)
                 if st.button("Log Glucose"):
+                    # Updated to log_date
                     supabase.table("health_metrics").insert(
                         {
-                            "date": d_gl.isoformat(),
+                            "log_date": d_gl.isoformat(),
                             "time": t_gl.strftime("%H:%M:%S"),
                             "blood_glucose": g_gl,
                         }
@@ -343,7 +353,7 @@ with tab2:
     except Exception as e:
         st.error(f"Health Dashboard error: {e}")
 
-# --- TAB 3: ACTIVITY ---
+# --- TAB 3: ACTIVITY (Fully Updated for log_date) ---
 with tab3:
     st.subheader("🏃 Log Activity")
     act_cat = st.radio("Category", ["Strength", "Cardio", "Endurance"], horizontal=True)
@@ -367,9 +377,10 @@ with tab3:
 
         if st.form_submit_button("Log Activity"):
             if name:
+                # Updated to log_date
                 supabase.table("activity_logs").insert(
                     {
-                        "date": str(a_date),
+                        "log_date": str(a_date),
                         "exercise_name": name,
                         "activity_category": act_cat,
                         "duration_min": dur,
@@ -387,17 +398,17 @@ with tab3:
     st.divider()
     st.subheader("📜 Activity History")
     try:
-        # Changed select to specifically pull date to ensure sorting works
+        # Sorted by log_date
         a_res = (
             supabase.table("activity_logs")
             .select("*")
-            .order("date", desc=True)
+            .order("log_date", desc=True)
             .execute()
         )
         if a_res.data:
             st.dataframe(pd.DataFrame(a_res.data), use_container_width=True)
     except Exception as e:
-        st.error(f"Activity History Error: {e}")
+        st.error(f"Activity load error: {e}")
 
 # --- TAB 4: REPORTS & EXPORTS ---
 with tab4:
@@ -415,9 +426,13 @@ with tab4:
     tbl = t_map[report_type]
 
     try:
-        # FIXED: Every table here uses 'date' based on your unredacted error
+        # Every table sorted by log_date
         res = (
-            supabase.table(tbl).select("*").order("date", desc=True).limit(50).execute()
+            supabase.table(tbl)
+            .select("*")
+            .order("log_date", desc=True)
+            .limit(50)
+            .execute()
         )
         if res.data:
             st.dataframe(pd.DataFrame(res.data), use_container_width=True)
@@ -428,6 +443,7 @@ with tab4:
     st.subheader("📂 Comprehensive Master Export")
     if st.button("🚀 Prepare Master CSV", key="master_exp_btn"):
         try:
+            # Updated to log_date across all queries
             l_res = (
                 supabase.table("daily_logs")
                 .select("log_date, foods(food_name, calories)")
@@ -452,7 +468,7 @@ with tab4:
                 if i.get("weight_lb"):
                     master.append(
                         {
-                            "date": i["date"],
+                            "date": i["log_date"],
                             "type": "Health",
                             "metric": "Weight",
                             "value": i["weight_lb"],
@@ -462,7 +478,7 @@ with tab4:
                 if i.get("blood_glucose"):
                     master.append(
                         {
-                            "date": i["date"],
+                            "date": i["log_date"],
                             "type": "Health",
                             "metric": "Glucose",
                             "value": i["blood_glucose"],
@@ -473,7 +489,7 @@ with tab4:
                 lbl = i.get("exercise_name") or i.get("activity_category") or "Activity"
                 master.append(
                     {
-                        "date": i.get("date"),
+                        "date": i.get("log_date"),
                         "type": "Activity",
                         "metric": lbl,
                         "value": i.get("duration_min", 0),
