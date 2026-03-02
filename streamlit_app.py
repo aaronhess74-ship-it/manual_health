@@ -362,34 +362,102 @@ with tab2:
     except Exception as e:
         st.error(f"Health Tab Error: {e}")
 
-# --- TAB 3: ACTIVITY ---
+# --- TAB 3: ACTIVITY (RESTORED DYNAMIC INPUTS) ---
 with tab3:
-    st.subheader(f"🏃 Workout Log")
-    with st.form("activity_form", clear_on_submit=True):
+    st.subheader(f"🏃 Activity Tracking ({active_user.upper()})")
+
+    # 1. The Category Selector
+    cat = st.radio("Workout Type", ["Strength", "Cardio", "Endurance"], horizontal=True)
+
+    with st.form("activity_log_form", clear_on_submit=True):
         f1, f2 = st.columns(2)
-        ex_name = f1.text_input("Exercise Name")
-        ex_cat = f2.selectbox("Category", ["Strength", "Cardio", "Endurance"])
-        m1, m2, m3, m4 = st.columns(4)
-        v_sets, v_reps, v_weight, v_dist = (
-            m1.number_input("Sets", 0),
-            m2.number_input("Reps", 0),
-            m3.number_input("Weight", 0),
-            m4.number_input("Miles/Mins", 0.0),
-        )
+        da = f1.date_input("Date", datetime.now())
+        nm = f2.text_input("Exercise Name (e.g. Bench Press, Run)")
+
+        st.markdown("---")
+        # 2. Dynamic Input Grid based on Radio Selection
+        c1, c2, c3, c4, c5 = st.columns(5)
+
+        # Initialize variables to None/0
+        v_sets, v_reps, v_weight, v_dur, v_dist = 0, 0, 0, 0, 0.0
+
+        # Strength: Sets, Reps, Weight
+        if cat == "Strength":
+            v_sets = c1.number_input("Sets", min_value=0, step=1)
+            v_reps = c2.number_input("Reps", min_value=0, step=1)
+            v_weight = c3.number_input("Weight (lbs)", min_value=0, step=5)
+
+        # Cardio: Duration, Distance
+        elif cat == "Cardio":
+            v_dur = c1.number_input("Duration (mins)", min_value=0, step=1)
+            v_dist = c2.number_input("Distance (miles)", min_value=0.0, step=0.1)
+
+        # Endurance: Sets, Reps, Duration
+        elif cat == "Endurance":
+            v_sets = c1.number_input("Sets", min_value=0, step=1)
+            v_reps = c2.number_input("Reps", min_value=0, step=1)
+            v_dur = c3.number_input("Duration (mins)", min_value=0, step=1)
+
+        st.markdown(" ")
         if st.form_submit_button("Log Activity"):
-            supabase.table("activity_logs").insert(
-                {
-                    "log_date": str(datetime.now().date()),
-                    "exercise_name": ex_name,
-                    "activity_category": ex_cat,
-                    "sets": v_sets,
-                    "reps": v_reps,
-                    "weight_lb": v_weight,
-                    "distance_miles": v_dist,
-                    "user_id": record_owner,
-                }
-            ).execute()
-            st.rerun()
+            if nm:  # Simple check to ensure exercise name isn't blank
+                supabase.table("activity_logs").insert(
+                    {
+                        "log_date": str(da),
+                        "exercise_name": nm,
+                        "activity_category": cat,
+                        "sets": v_sets if v_sets > 0 else None,
+                        "reps": v_reps if v_reps > 0 else None,
+                        "weight_lb": v_weight if v_weight > 0 else None,
+                        "duration_min": v_dur if v_dur > 0 else None,
+                        "distance_miles": v_dist if v_dist > 0 else None,
+                        "user_id": record_owner,
+                    }
+                ).execute()
+                st.rerun()
+            else:
+                st.warning("Please enter an exercise name.")
+
+    # 3. Recent Activity History with Delete
+    st.divider()
+    st.subheader("📜 Recent Workouts")
+    act_res = (
+        supabase.table("activity_logs")
+        .select("*")
+        .eq("user_id", active_user)
+        .order("log_date", desc=True)
+        .limit(10)
+        .execute()
+    )
+
+    if act_res.data:
+        for r in act_res.data:
+            ac1, ac2, ac3 = st.columns([4, 2, 1])
+
+            # Format the display string based on what data exists
+            details = []
+            if r.get("sets"):
+                details.append(f"{r['sets']} sets")
+            if r.get("reps"):
+                details.append(f"{r['reps']} reps")
+            if r.get("weight_lb"):
+                details.append(f"{r['weight_lb']} lbs")
+            if r.get("duration_min"):
+                details.append(f"{r['duration_min']} mins")
+            if r.get("distance_miles"):
+                details.append(f"{r['distance_miles']} miles")
+
+            ac1.write(
+                f"**{r['log_date']}** | {r['exercise_name']} ({r['activity_category']})"
+            )
+            ac2.write(", ".join(details))
+
+            # Delete logic
+            a_id = r.get("activity_id") or r.get("id")
+            if ac3.button("🗑️", key=f"del_act_{a_id}"):
+                col_n = "activity_id" if "activity_id" in r else "id"
+                supabase.table("activity_logs").delete().eq(col_n, a_id).execute()
+                st.rerun()
 
 # --- TAB 4: REPORTS (STABLE REVERT) ---
 with tab4:
