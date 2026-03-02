@@ -86,25 +86,35 @@ with tab1:
                 float(latest.get("total_protein", 0)),
                 float(latest.get("total_net_carbs", 0)),
             )
+            fat, fib = (
+                float(latest.get("total_fat", 0)),
+                float(latest.get("total_fiber", 0)),
+            )
 
             def get_status(curr, target, ceil=True):
                 if ceil:
-                    return "🔴 OVER" if curr > target else "🟢 OK"
-                return "🟢 GOAL" if curr >= target else "🔴 LOW"
+                    return "🔴" if curr > target else "🟢"
+                return "🟢" if curr >= target else "🔴"
 
             c1.metric(
                 f"Calories {get_status(cals, TARGET_CALORIES)}",
                 f"{int(cals)}",
-                f"{int(TARGET_CALORIES - cals)} Left",
+                f"Goal: {TARGET_CALORIES}",
             )
             c2.metric(
-                f"Protein {get_status(prot, TARGET_PROTEIN, False)}", f"{int(prot)}g"
+                f"Protein {get_status(prot, TARGET_PROTEIN, False)}",
+                f"{int(prot)}g",
+                f"Goal: {TARGET_PROTEIN}g",
             )
             c3.metric(
-                f"Net Carbs {get_status(net_c, TARGET_NET_CARBS)}", f"{int(net_c)}g"
+                f"Net Carbs {get_status(net_c, TARGET_NET_CARBS)}",
+                f"{int(net_c)}g",
+                f"Limit: {TARGET_NET_CARBS}g",
             )
-            c4.metric("Total Fat", f"{int(latest.get('total_fat', 0))}g")
-            c5.metric("Fiber", f"{int(latest.get('total_fiber', 0))}g")
+            c4.metric(f"Fat {get_status(fat, TARGET_FAT_MAX)}", f"{int(fat)}g")
+            c5.metric(
+                f"Fiber {get_status(fib, TARGET_FIBER_MIN, False)}", f"{int(fib)}g"
+            )
     except Exception as e:
         st.error(f"Nutrition Error: {e}")
 
@@ -134,11 +144,25 @@ with tab1:
         if st.session_state.is_admin:
             with st.form("new_food_form"):
                 n_name = st.text_input("Name")
-                nc, np = st.number_input("Cals", 0), st.number_input("Prot", 0)
+                nc, np, nf, ncar, nfib = st.columns(5)
+                c_val = nc.number_input("Cals", 0)
+                p_val = np.number_input("Prot", 0)
+                f_val = nf.number_input("Fat", 0)
+                car_val = ncar.number_input("NetC", 0)
+                fib_val = nfib.number_input("Fiber", 0)
                 if st.form_submit_button("Create & Log"):
                     res = (
                         supabase.table("foods")
-                        .insert({"food_name": n_name, "calories": nc, "protein_g": np})
+                        .insert(
+                            {
+                                "food_name": n_name,
+                                "calories": c_val,
+                                "protein_g": p_val,
+                                "fat_g": f_val,
+                                "net_carbs_g": car_val,
+                                "fiber_g": fib_val,
+                            }
+                        )
                         .execute()
                     )
                     if res.data:
@@ -152,7 +176,7 @@ with tab1:
                         ).execute()
                         st.rerun()
         else:
-            st.warning("Only Admin can add new items to the library.")
+            st.warning("Admin only: Custom food creation.")
 
 # --- TAB 2: HEALTH METRICS ---
 with tab2:
@@ -172,18 +196,16 @@ with tab2:
             )
             df["display_time"] = df["ts"].dt.strftime("%b %d, %I:%M %p")
 
-            # --- COLOR-CODED STATUS CARDS ---
-            st.subheader(f"📋 Latest Health Status ({active_user.upper()})")
+            # --- STATUS CARDS ---
             latest = df.iloc[-1]
+            st.subheader(f"📋 Latest Status (Logged: {latest['display_time']})")
             s1, s2, s3 = st.columns(3)
 
-            # Weight Status Logic
             if not pd.isna(latest.get("weight_lb")):
                 w = latest["weight_lb"]
                 w_status = "🟢" if w < 200 else "🟡" if w < 220 else "🔴"
-                s1.metric("Current Weight", f"{w} lbs", f"{w_status} Target < 200")
+                s1.metric("Weight", f"{w} lbs", f"{w_status} Target < 200")
 
-            # BP Status Logic
             if not pd.isna(latest.get("blood_pressure_systolic")):
                 sys, dia = (
                     latest["blood_pressure_systolic"],
@@ -197,34 +219,24 @@ with tab2:
                     else "🔴"
                 )
                 s2.metric(
-                    "Blood Pressure",
-                    f"{int(sys)}/{int(dia)}",
-                    f"{bp_status} Target < 130/85",
+                    "BP", f"{int(sys)}/{int(dia)}", f"{bp_status} Target < 130/85"
                 )
 
-            # Glucose Status Logic
             if not pd.isna(latest.get("blood_glucose")):
                 glu = latest["blood_glucose"]
                 g_status = "🟢" if glu < 100 else "🟡" if glu < 125 else "🔴"
-                s3.metric(
-                    "Blood Glucose", f"{int(glu)} mg/dL", f"{g_status} Target < 100"
-                )
+                s3.metric("Glucose", f"{int(glu)} mg/dL", f"{g_status} Target < 100")
 
             st.divider()
-
-            # --- TREND CHARTS ---
-            st.subheader("📊 Interactive Trends")
-            st.info(
-                "💡 Pro Tip: Click and drag to zoom into specific entries. Double-click to reset."
-            )
+            st.subheader("📊 Trends (Click/Drag to Zoom)")
             brush = alt.selection_interval(encodings=["x"])
 
             def create_chart(data, y_col, y_label, y_domain, color):
                 base = alt.Chart(data).encode(
                     x=alt.X(
                         "ts:T",
-                        title="Timeline",
-                        axis=alt.Axis(format="%b %d", labelAngle=-45, tickCount="day"),
+                        title="Date",
+                        axis=alt.Axis(format="%b %d", tickCount="day"),
                     ),
                     y=alt.Y(
                         f"{y_col}:Q",
@@ -238,7 +250,7 @@ with tab2:
                 )
                 return (
                     (
-                        base.mark_line(color=color, opacity=0.5)
+                        base.mark_line(color=color, opacity=0.4)
                         + base.mark_point(color=color, size=60, filled=True)
                     )
                     .add_params(brush)
@@ -246,19 +258,18 @@ with tab2:
                     .properties(height=250)
                 )
 
-            # Weight
+            # Charts
             w_df = df.dropna(subset=["weight_lb"])
             if not w_df.empty:
-                st.write("**Weight Trend**")
+                st.write("**Weight**")
                 st.altair_chart(
                     create_chart(w_df, "weight_lb", "Lbs", [100, 300], "#3498db"),
                     use_container_width=True,
                 )
 
-            # Blood Pressure (Multi-line)
             bp_df = df.dropna(subset=["blood_pressure_systolic"])
             if not bp_df.empty:
-                st.write("**Blood Pressure Trend**")
+                st.write("**Blood Pressure**")
                 bp_melted = bp_df.melt(
                     id_vars=["ts", "display_time"],
                     value_vars=["blood_pressure_systolic", "blood_pressure_diastolic"],
@@ -286,27 +297,30 @@ with tab2:
                 )
                 st.altair_chart(bp_chart, use_container_width=True)
 
-            # Glucose
             g_df = df.dropna(subset=["blood_glucose"])
             if not g_df.empty:
-                st.write("**Glucose Trend**")
+                st.write("**Glucose**")
                 st.altair_chart(
                     create_chart(g_df, "blood_glucose", "mg/dL", [50, 250], "#e74c3c"),
                     use_container_width=True,
                 )
 
         st.divider()
-        st.subheader("➕ Add Health Record")
-        with st.form("metric_form", clear_on_submit=True):
+        st.subheader("➕ Manual Entry (Backdating Supported)")
+        with st.form("metric_form_final", clear_on_submit=True):
             f1, f2 = st.columns(2)
-            log_date = f1.date_input("Date", datetime.now())
-            log_time = f2.time_input("Time", datetime.now())
+            log_date, log_time = (
+                f1.date_input("Date", datetime.now()),
+                f2.time_input("Time", datetime.now()),
+            )
             c1, c2, c3, c4 = st.columns(4)
-            wt = c1.number_input("Weight", 0.0, 500.0, 0.0)
-            sys = c2.number_input("Systolic", 0, 250, 0)
-            dia = c3.number_input("Diastolic", 0, 250, 0)
-            gl = c4.number_input("Glucose", 0, 500, 0)
-            if st.form_submit_button("Save Record"):
+            wt, sys, dia, gl = (
+                c1.number_input("Weight", 0.0),
+                c2.number_input("Sys", 0),
+                c3.number_input("Dia", 0),
+                c4.number_input("Gluc", 0),
+            )
+            if st.form_submit_button("Save Health Record"):
                 payload = {
                     "date": str(log_date),
                     "time": log_time.strftime("%H:%M:%S"),
@@ -323,7 +337,7 @@ with tab2:
                 supabase.table("health_metrics").insert(payload).execute()
                 st.rerun()
     except Exception as e:
-        st.error(f"Health Error: {e}")
+        st.error(f"Health Tab Error: {e}")
 
 # --- TAB 3: ACTIVITY ---
 with tab3:
@@ -368,13 +382,13 @@ with tab3:
         .select("*")
         .eq("user_id", active_user)
         .order("log_date", desc=True)
-        .limit(10)
+        .limit(15)
         .execute()
     )
     if a_res.data:
         st.dataframe(pd.DataFrame(a_res.data), use_container_width=True)
 
-# --- TAB 4: REPORTS ---
+# --- TAB 4: REPORTS & FIXED MASTER VIEWER ---
 with tab4:
     st.subheader("📊 Master Table Viewer")
     view_tbl = st.selectbox(
@@ -385,13 +399,15 @@ with tab4:
         query = supabase.table(view_tbl).select("*")
         if view_tbl != "foods":
             query = query.eq("user_id", active_user)
-        sort_col = (
-            "date"
-            if "date" in view_tbl or "variance" in view_tbl
-            else "log_date"
-            if "log" in view_tbl
-            else "food_name"
-        )
+
+        # Correct Sorting Keys
+        if view_tbl in ["health_metrics", "daily_variance"]:
+            sort_col = "date"
+        elif view_tbl in ["activity_logs", "daily_logs"]:
+            sort_col = "log_date"
+        else:
+            sort_col = "food_name"
+
         tbl_res = query.order(sort_col, desc=True).limit(100).execute()
         if tbl_res.data:
             st.dataframe(pd.DataFrame(tbl_res.data), use_container_width=True)
@@ -399,46 +415,19 @@ with tab4:
         st.error(f"Viewer Error: {e}")
 
     st.divider()
-    if st.button(f"Prepare CSV Export for {active_user.upper()}"):
+    if st.button("Prepare CSV Export"):
         try:
-            nut = (
-                supabase.table("daily_logs")
-                .select("log_date, foods(food_name, calories)")
-                .eq("user_id", active_user)
-                .execute()
-                .data
-            )
             met = (
                 supabase.table("health_metrics")
-                .select("date, weight_lb, blood_glucose")
+                .select("*")
                 .eq("user_id", active_user)
                 .execute()
                 .data
             )
-            rows = []
-            for n in nut:
-                rows.append(
-                    {
-                        "Date": n["log_date"],
-                        "Type": "Food",
-                        "Label": n["foods"]["food_name"],
-                        "Value": n["foods"]["calories"],
-                    }
-                )
-            for m in met:
-                if m["weight_lb"]:
-                    rows.append(
-                        {
-                            "Date": m["date"],
-                            "Type": "Weight",
-                            "Label": "Weight",
-                            "Value": m["weight_lb"],
-                        }
-                    )
-            if rows:
-                csv = pd.DataFrame(rows).to_csv(index=False).encode("utf-8")
+            if met:
+                csv = pd.DataFrame(met).to_csv(index=False).encode("utf-8")
                 st.download_button(
-                    "📥 Download CSV", data=csv, file_name=f"export_{active_user}.csv"
+                    "📥 Download", data=csv, file_name=f"export_{active_user}.csv"
                 )
         except Exception as e:
             st.error(f"Export Error: {e}")
