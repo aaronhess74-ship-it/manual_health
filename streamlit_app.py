@@ -5,7 +5,6 @@ import pandas as pd
 import altair as alt
 
 # 1. Setup Connection
-# Using st.secrets for security - ensure these match your Supabase Dashboard
 url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase = create_client(url, key)
@@ -47,7 +46,6 @@ if not check_password():
     st.stop()
 
 # --- DATA SCOPING ---
-# Admin can toggle between viewing their own data or guest data
 if st.session_state.is_admin:
     view_mode = st.sidebar.radio(
         "🔎 View Mode", ["My Data (Admin)", "Tester Data (Guest)"]
@@ -56,7 +54,6 @@ if st.session_state.is_admin:
 else:
     active_user = "guest"
 
-# record_owner is who the current login writes to
 record_owner = "admin" if st.session_state.is_admin else "guest"
 
 # --- TARGETS ---
@@ -71,7 +68,6 @@ tab1, tab2, tab3, tab4 = st.tabs(
 # --- TAB 1: NUTRITION ---
 with tab1:
     try:
-        # Pulling the calculated daily variance for the dashboard metrics
         response = (
             supabase.table("daily_variance")
             .select("*")
@@ -91,19 +87,18 @@ with tab1:
             fat = float(latest.get("total_fat", 0))
             fib = float(latest.get("total_fiber", 0))
 
-            # --- COLOR DOT LOGIC ---
+            # Dot Indicators
             nc_dot = "🟢" if net_c <= NC_LIMIT else "🔴"
+            fat_dot = "🟢" if fat <= TARGET_FAT_MAX else "🔴"
+            fib_dot = "🟢" if fib >= TARGET_FIBER_MIN else "🔴"
 
-            # --- METRIC DELTA LOGIC ---
-            # Calories: Standard (Remaining)
+            # Metrics
             c1.metric("Calories", f"{int(cals)}", f"{int(TARGET_CALORIES - cals)} Left")
-
-            # Protein: Standard (Target met/unmet)
             c2.metric(
                 "Protein", f"{int(prot)}g", f"{int(prot - TARGET_PROTEIN)}g vs Goal"
             )
 
-            # Net Carbs: FIXED (Red if over 100, Inverse delta so + is Red)
+            # Net Carbs - Inverse (Over is Red)
             c3.metric(
                 f"Net Carbs {nc_dot}",
                 f"{int(net_c)}g",
@@ -111,16 +106,20 @@ with tab1:
                 delta_color="inverse",
             )
 
-            # Fat: Inverse (Over limit is Red)
+            # Fat - Inverse (Over is Red)
             c4.metric(
-                "Fat",
+                f"Fat {fat_dot}",
                 f"{int(fat)}g",
                 f"{int(fat - TARGET_FAT_MAX)}g Over",
                 delta_color="inverse",
             )
 
-            # Fiber: Standard (Target met/unmet)
-            c5.metric("Fiber", f"{int(fib)}g", f"{int(fib - TARGET_FIBER_MIN)}g vs Min")
+            # Fiber - Normal (Under is Red)
+            c5.metric(
+                f"Fiber {fib_dot}",
+                f"{int(fib)}g",
+                f"{int(fib - TARGET_FIBER_MIN)}g vs Min",
+            )
 
     except Exception as e:
         st.error(f"Nutrition Error: {e}")
@@ -129,7 +128,6 @@ with tab1:
     col_a, col_b = st.columns(2)
     with col_a:
         st.markdown("### 🔎 Library Search")
-        # Explicit food library selection
         f_query = supabase.table("foods").select("*").order("food_name").execute()
         if f_query.data:
             f_dict = {f["food_name"]: f for f in f_query.data}
@@ -146,11 +144,10 @@ with tab1:
                         }
                     ).execute()
                     st.rerun()
-
     with col_b:
         st.markdown("### ➕ Admin: Create Food")
         if st.session_state.is_admin:
-            with st.form("add_food_macro_complete"):
+            with st.form("add_food_full"):
                 fn = st.text_input("New Food Name")
                 f_c1, f_c2, f_c3, f_c4, f_c5 = st.columns(5)
                 v_ca = f_c1.number_input("Cals", 0)
@@ -183,12 +180,9 @@ with tab1:
                             }
                         ).execute()
                         st.rerun()
-        else:
-            st.info("Custom food entry is restricted to Admin accounts.")
 
     st.divider()
     st.subheader("🗑️ Today's Logged Items")
-    # This section performs a join to get the food_name from the foods table
     log_res = (
         supabase.table("daily_logs")
         .select("log_id, servings, foods(food_name, calories)")
@@ -224,7 +218,6 @@ with tab2:
             )
             df["display_time"] = df["ts"].dt.strftime("%b %d, %I:%M %p")
 
-            # Finding independent latest values
             last_w = (
                 df.dropna(subset=["weight_lb"]).iloc[-1]
                 if not df["weight_lb"].dropna().empty
@@ -269,10 +262,10 @@ with tab2:
             st.divider()
             st.subheader("📊 Health Trends")
 
-            def static_chart(data, col, color):
+            def static_chart(data, col, label, color):
                 base = alt.Chart(data).encode(
                     x=alt.X("ts:T", axis=alt.Axis(format="%b %d")),
-                    y=alt.Y(f"{col}:Q", scale=alt.Scale(zero=False)),
+                    y=alt.Y(f"{col}:Q", scale=alt.Scale(zero=False), title=label),
                 )
                 st.altair_chart(
                     (
@@ -282,10 +275,43 @@ with tab2:
                 )
 
             if last_w is not None:
-                static_chart(df.dropna(subset=["weight_lb"]), "weight_lb", "#3498db")
+                static_chart(
+                    df.dropna(subset=["weight_lb"]),
+                    "weight_lb",
+                    "Weight (lbs)",
+                    "#3498db",
+                )
+            if last_bp is not None:
+                bp_df = df.dropna(subset=["blood_pressure_systolic"])
+                bp_chart = (
+                    alt.Chart(bp_df)
+                    .transform_fold(
+                        ["blood_pressure_systolic", "blood_pressure_diastolic"],
+                        as_=["Metric", "Value"],
+                    )
+                    .encode(
+                        x="ts:T",
+                        y=alt.Y("Value:Q", scale=alt.Scale(zero=False)),
+                        color="Metric:N",
+                    )
+                    .mark_line()
+                    + alt.Chart(bp_df)
+                    .transform_fold(
+                        ["blood_pressure_systolic", "blood_pressure_diastolic"],
+                        as_=["Metric", "Value"],
+                    )
+                    .encode(x="ts:T", y="Value:Q", color="Metric:N")
+                    .mark_point()
+                )
+                st.altair_chart(
+                    bp_chart.properties(height=200), use_container_width=True
+                )
             if last_g is not None:
                 static_chart(
-                    df.dropna(subset=["blood_glucose"]), "blood_glucose", "#e74c3c"
+                    df.dropna(subset=["blood_glucose"]),
+                    "blood_glucose",
+                    "Glucose (mg/dL)",
+                    "#e74c3c",
                 )
 
         st.divider()
@@ -294,7 +320,7 @@ with tab2:
         now = datetime.now()
         with c1:
             with st.expander("⚖️ Weight", expanded=True):
-                wv = st.number_input("Weight (lbs)", 0.0, key="man_w")
+                wv = st.number_input("Lbs", 0.0, key="man_w")
                 wd, wt = (
                     st.date_input("Date", now, key="wd_w"),
                     st.time_input("Time", now, key="wt_w"),
@@ -312,8 +338,8 @@ with tab2:
         with c2:
             with st.expander("❤️ Blood Pressure", expanded=True):
                 bs, bd = (
-                    st.number_input("Systolic", 0, key="man_bs"),
-                    st.number_input("Diastolic", 0, key="man_bd"),
+                    st.number_input("Sys", 0, key="man_bs"),
+                    st.number_input("Dia", 0, key="man_bd"),
                 )
                 bpd, bpt = (
                     st.date_input("Date", now, key="wd_bp"),
@@ -354,15 +380,13 @@ with tab2:
 with tab3:
     st.subheader(f"🏃 Activity Tracking ({active_user.upper()})")
     cat = st.radio("Category", ["Strength", "Cardio", "Endurance"], horizontal=True)
-    with st.form("act_log_full_restored"):
+    with st.form("act_log"):
         f1, f2 = st.columns(2)
         da, nm = f1.date_input("Date", datetime.now()), f2.text_input("Exercise Name")
         c1, c2, c3, c4, c5 = st.columns(5)
-        # Strength & Endurance get Sets/Reps/Weight
         s = c1.number_input("Sets", 0) if cat in ["Strength", "Endurance"] else 0
         r = c2.number_input("Reps", 0) if cat in ["Strength", "Endurance"] else 0
         w = c3.number_input("Weight", 0) if cat in ["Strength", "Endurance"] else 0
-        # Cardio & Endurance get Mins/Miles
         du = c4.number_input("Mins", 0) if cat in ["Cardio", "Endurance"] else 0
         di = c5.number_input("Miles", 0.0) if cat in ["Cardio", "Endurance"] else 0
         if st.form_submit_button("Log Activity"):
@@ -382,7 +406,7 @@ with tab3:
             st.rerun()
 
     st.divider()
-    st.subheader("📜 Recent Activity History")
+    st.subheader("📜 Recent History")
     act_res = (
         supabase.table("activity_logs")
         .select("*")
@@ -392,7 +416,17 @@ with tab3:
         .execute()
     )
     if act_res.data:
-        st.dataframe(pd.DataFrame(act_res.data), use_container_width=True)
+        act_df = pd.DataFrame(act_res.data)
+        for i, row in act_df.iterrows():
+            ac1, ac2, ac3 = st.columns([4, 1, 1])
+            ac1.write(
+                f"**{row['log_date']}**: {row['exercise_name']} ({row['activity_category']})"
+            )
+            if ac3.button("🗑️", key=f"del_act_{row['activity_id']}"):
+                supabase.table("activity_logs").delete().eq(
+                    "activity_id", row["activity_id"]
+                ).execute()
+                st.rerun()
 
 # --- TAB 4: REPORTS ---
 with tab4:
@@ -429,6 +463,6 @@ with tab4:
                     file_name="health_export.csv",
                 )
             else:
-                st.info("No records available to export.")
+                st.info("No records available.")
         except Exception as e:
             st.error(f"Export Error: {e}")
