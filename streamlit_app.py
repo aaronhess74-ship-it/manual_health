@@ -78,43 +78,38 @@ with tab1:
         )
         if response.data:
             latest = response.data[0]
-            st.subheader(f"Daily Status: {latest['date']} ({active_user.upper()})")
+            st.subheader(
+                f"Daily Status: {latest.get('date', 'Today')} ({active_user.upper()})"
+            )
             c1, c2, c3, c4, c5 = st.columns(5)
 
-            cals = float(latest.get("total_calories", 0))
-            prot = float(latest.get("total_protein", 0))
-            net_c = float(latest.get("total_net_carbs", 0))
-            fat = float(latest.get("total_fat", 0))
-            fib = float(latest.get("total_fiber", 0))
+            # CRITICAL FIX: The "or 0" prevents crashes if the database returns a blank/null cell
+            cals = float(latest.get("total_calories") or 0)
+            prot = float(latest.get("total_protein") or 0)
+            net_c = float(latest.get("total_net_carbs") or 0)
+            fat = float(latest.get("total_fat") or 0)
+            fib = float(latest.get("total_fiber") or 0)
 
-            # Dot Indicators
             nc_dot = "🟢" if net_c <= NC_LIMIT else "🔴"
             fat_dot = "🟢" if fat <= TARGET_FAT_MAX else "🔴"
             fib_dot = "🟢" if fib >= TARGET_FIBER_MIN else "🔴"
 
-            # Metrics
             c1.metric("Calories", f"{int(cals)}", f"{int(TARGET_CALORIES - cals)} Left")
             c2.metric(
                 "Protein", f"{int(prot)}g", f"{int(prot - TARGET_PROTEIN)}g vs Goal"
             )
-
-            # Net Carbs - Inverse (Over is Red)
             c3.metric(
                 f"Net Carbs {nc_dot}",
                 f"{int(net_c)}g",
                 f"{int(net_c - NC_LIMIT)}g Over",
                 delta_color="inverse",
             )
-
-            # Fat - Inverse (Over is Red)
             c4.metric(
                 f"Fat {fat_dot}",
                 f"{int(fat)}g",
                 f"{int(fat - TARGET_FAT_MAX)}g Over",
                 delta_color="inverse",
             )
-
-            # Fiber - Normal (Under is Red)
             c5.metric(
                 f"Fiber {fib_dot}",
                 f"{int(fib)}g",
@@ -130,14 +125,16 @@ with tab1:
         st.markdown("### 🔎 Library Search")
         f_query = supabase.table("foods").select("*").order("food_name").execute()
         if f_query.data:
-            f_dict = {f["food_name"]: f for f in f_query.data}
+            f_dict = {f.get("food_name", "Unknown"): f for f in f_query.data}
             sel = st.selectbox("Select Item", options=list(f_dict.keys()), index=None)
             if sel:
                 srv = st.number_input("Servings", 0.1, 10.0, 1.0)
                 if st.button("Log Food Entry"):
+                    # Fallback to ID if food_id isn't present
+                    f_id = f_dict[sel].get("food_id") or f_dict[sel].get("id")
                     supabase.table("daily_logs").insert(
                         {
-                            "food_id": f_dict[sel]["food_id"],
+                            "food_id": f_id,
                             "servings": srv,
                             "log_date": str(datetime.now().date()),
                             "user_id": record_owner,
@@ -171,9 +168,10 @@ with tab1:
                         .execute()
                     )
                     if res.data:
+                        f_id = res.data[0].get("food_id") or res.data[0].get("id")
                         supabase.table("daily_logs").insert(
                             {
-                                "food_id": res.data[0]["food_id"],
+                                "food_id": f_id,
                                 "servings": 1.0,
                                 "log_date": str(datetime.now().date()),
                                 "user_id": record_owner,
@@ -185,7 +183,7 @@ with tab1:
     st.subheader("🗑️ Today's Logged Items")
     log_res = (
         supabase.table("daily_logs")
-        .select("log_id, servings, foods(food_name, calories)")
+        .select("*, foods(food_name, calories)")
         .eq("log_date", str(datetime.now().date()))
         .eq("user_id", active_user)
         .execute()
@@ -193,12 +191,18 @@ with tab1:
     if log_res.data:
         for r in log_res.data:
             lc1, lc2, lc3 = st.columns([3, 1, 1])
-            lc1.write(f"**{r['foods']['food_name']}**")
-            lc2.write(f"{int(r['foods']['calories'] * r['servings'])} kcal")
-            if lc3.button("🗑️", key=f"del_{r['log_id']}"):
-                supabase.table("daily_logs").delete().eq(
-                    "log_id", r["log_id"]
-                ).execute()
+            food_info = r.get("foods") or {}
+            fname = food_info.get("food_name", "Unknown")
+            fcal = food_info.get("calories", 0)
+            srv = r.get("servings", 1)
+
+            lc1.write(f"**{fname}**")
+            lc2.write(f"{int(fcal * srv)} kcal")
+
+            l_id = r.get("log_id") or r.get("id")
+            if l_id and lc3.button("🗑️", key=f"del_log_{l_id}"):
+                col_name = "log_id" if "log_id" in r else "id"
+                supabase.table("daily_logs").delete().eq(col_name, l_id).execute()
                 st.rerun()
 
 # --- TAB 2: HEALTH METRICS ---
@@ -282,7 +286,9 @@ with tab2:
                     "#3498db",
                 )
             if last_bp is not None:
-                bp_df = df.dropna(subset=["blood_pressure_systolic"])
+                bp_df = df.dropna(
+                    subset=["blood_pressure_systolic", "blood_pressure_diastolic"]
+                )
                 bp_chart = (
                     alt.Chart(bp_df)
                     .transform_fold(
@@ -290,21 +296,20 @@ with tab2:
                         as_=["Metric", "Value"],
                     )
                     .encode(
-                        x="ts:T",
-                        y=alt.Y("Value:Q", scale=alt.Scale(zero=False)),
+                        x=alt.X("ts:T", axis=alt.Axis(format="%b %d")),
+                        y=alt.Y(
+                            "Value:Q",
+                            scale=alt.Scale(zero=False),
+                            title="Blood Pressure",
+                        ),
                         color="Metric:N",
                     )
-                    .mark_line()
-                    + alt.Chart(bp_df)
-                    .transform_fold(
-                        ["blood_pressure_systolic", "blood_pressure_diastolic"],
-                        as_=["Metric", "Value"],
-                    )
-                    .encode(x="ts:T", y="Value:Q", color="Metric:N")
-                    .mark_point()
                 )
                 st.altair_chart(
-                    bp_chart.properties(height=200), use_container_width=True
+                    (bp_chart.mark_line() + bp_chart.mark_point()).properties(
+                        height=200
+                    ),
+                    use_container_width=True,
                 )
             if last_g is not None:
                 static_chart(
@@ -373,6 +378,43 @@ with tab2:
                         }
                     ).execute()
                     st.rerun()
+
+        # RESTORED HISTORY VIEW FOR HEALTH TAB
+        st.divider()
+        st.subheader("📜 Recent Health Logs")
+        h_res = (
+            supabase.table("health_metrics")
+            .select("*")
+            .eq("user_id", active_user)
+            .order("date", desc=True)
+            .limit(5)
+            .execute()
+        )
+        if h_res.data:
+            for r in h_res.data:
+                hc1, hc2, hc3 = st.columns([4, 1, 1])
+                parts = []
+                if r.get("weight_lb"):
+                    parts.append(f"Weight: {r['weight_lb']}lbs")
+                if r.get("blood_pressure_systolic"):
+                    parts.append(
+                        f"BP: {r['blood_pressure_systolic']}/{r['blood_pressure_diastolic']}"
+                    )
+                if r.get("blood_glucose"):
+                    parts.append(f"Glucose: {r['blood_glucose']}mg/dL")
+
+                hc1.write(
+                    f"**{r.get('date', '')} {r.get('time', '')}**: {', '.join(parts)}"
+                )
+
+                h_id = r.get("metric_id") or r.get("id")
+                if h_id and hc3.button("🗑️", key=f"del_h_{h_id}"):
+                    col_name = "metric_id" if "metric_id" in r else "id"
+                    supabase.table("health_metrics").delete().eq(
+                        col_name, h_id
+                    ).execute()
+                    st.rerun()
+
     except Exception as e:
         st.error(f"Health Error: {e}")
 
@@ -416,16 +458,16 @@ with tab3:
         .execute()
     )
     if act_res.data:
-        act_df = pd.DataFrame(act_res.data)
-        for i, row in act_df.iterrows():
+        for r in act_res.data:
             ac1, ac2, ac3 = st.columns([4, 1, 1])
             ac1.write(
-                f"**{row['log_date']}**: {row['exercise_name']} ({row['activity_category']})"
+                f"**{r.get('log_date', '')}**: {r.get('exercise_name', 'Unknown')} ({r.get('activity_category', '')})"
             )
-            if ac3.button("🗑️", key=f"del_act_{row['activity_id']}"):
-                supabase.table("activity_logs").delete().eq(
-                    "activity_id", row["activity_id"]
-                ).execute()
+
+            a_id = r.get("activity_id") or r.get("id")
+            if a_id and ac3.button("🗑️", key=f"del_act_{a_id}"):
+                col_name = "activity_id" if "activity_id" in r else "id"
+                supabase.table("activity_logs").delete().eq(col_name, a_id).execute()
                 st.rerun()
 
 # --- TAB 4: REPORTS ---
@@ -435,34 +477,45 @@ with tab4:
         "Select Table", ["health_metrics", "activity_logs", "daily_logs", "foods"]
     )
     if tbl:
-        q = supabase.table(tbl).select("*")
-        if tbl != "foods":
-            q = q.eq("user_id", active_user)
-        sort_col = (
-            "date" if "health" in tbl else "log_date" if "log" in tbl else "food_name"
-        )
-        res = q.order(sort_col, desc=True).limit(100).execute()
-        if res.data:
-            st.dataframe(pd.DataFrame(res.data), use_container_width=True)
+        try:
+            q = supabase.table(tbl).select("*")
+            if tbl != "foods":
+                q = q.eq("user_id", active_user)
+            sort_col = (
+                "date"
+                if "health" in tbl
+                else "log_date"
+                if "log" in tbl
+                else "food_name"
+            )
+            res = q.order(sort_col, desc=True).limit(100).execute()
+            if res.data:
+                st.dataframe(pd.DataFrame(res.data), use_container_width=True)
+            else:
+                st.info("No data found for this table.")
+        except Exception as e:
+            st.error(f"Error loading table: {e}")
 
+    # FIXED: Standalone Export block (Removed the wrapping st.button)
     st.divider()
     st.subheader("📥 Master Data Export")
-    if st.button("Generate Health CSV"):
-        try:
-            exp = (
-                supabase.table("health_metrics")
-                .select("*")
-                .eq("user_id", active_user)
-                .execute()
-                .data
+    try:
+        exp = (
+            supabase.table("health_metrics")
+            .select("*")
+            .eq("user_id", active_user)
+            .execute()
+            .data
+        )
+        if exp:
+            csv_data = pd.DataFrame(exp).to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "Download Health CSV",
+                data=csv_data,
+                file_name=f"{active_user}_health_export.csv",
+                mime="text/csv",
             )
-            if exp:
-                st.download_button(
-                    "Download CSV",
-                    data=pd.DataFrame(exp).to_csv(index=False).encode("utf-8"),
-                    file_name="health_export.csv",
-                )
-            else:
-                st.info("No records available.")
-        except Exception as e:
-            st.error(f"Export Error: {e}")
+        else:
+            st.info("No records available to export.")
+    except Exception as e:
+        st.error(f"Export Error: {e}")
