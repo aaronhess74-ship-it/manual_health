@@ -19,25 +19,24 @@ def check_password():
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
         st.session_state.is_admin = False
+
     if not st.session_state.authenticated:
         st.title("🔒 Dashboard Access")
-        with st.form("login_form"):
-            pwd = st.text_input("Enter Access Code", type="password")
-            if st.form_submit_button("Login"):
-                if pwd == st.secrets["ADMIN_PASSWORD"]:
-                    st.session_state.authenticated, st.session_state.is_admin = (
-                        True,
-                        True,
-                    )
-                    st.rerun()
-                elif pwd == st.secrets["GUEST_PASSWORD"]:
-                    st.session_state.authenticated, st.session_state.is_admin = (
-                        True,
-                        False,
-                    )
-                    st.rerun()
-                else:
-                    st.error("Invalid Code")
+        col1, _ = st.columns([1, 1])
+        with col1:
+            with st.form("login_form"):
+                pwd = st.text_input("Enter Access Code", type="password")
+                if st.form_submit_button("Login"):
+                    if pwd == st.secrets["ADMIN_PASSWORD"]:
+                        st.session_state.authenticated = True
+                        st.session_state.is_admin = True
+                        st.rerun()
+                    elif pwd == st.secrets.get("GUEST_PASSWORD"):
+                        st.session_state.authenticated = True
+                        st.session_state.is_admin = False
+                        st.rerun()
+                    else:
+                        st.error("Invalid Code")
         return False
     return True
 
@@ -54,6 +53,7 @@ if st.session_state.is_admin:
 else:
     active_user = "guest"
 
+# Record Owner ensures that even if Admin views Guest data, they write to their own account
 record_owner = "admin" if st.session_state.is_admin else "guest"
 
 # --- TARGETS ---
@@ -76,25 +76,18 @@ with tab1:
             .limit(1)
             .execute()
         )
+
         if response.data:
             latest = response.data[0]
-            st.subheader(
-                f"Daily Status: {latest.get('date', 'Today')} ({active_user.upper()})"
-            )
+            st.subheader(f"Daily Status: {latest.get('date')} ({active_user.upper()})")
             c1, c2, c3, c4, c5 = st.columns(5)
 
-            # Safe numeric conversion
-            cals, prot, net_c = (
-                float(latest.get("total_calories") or 0),
-                float(latest.get("total_protein") or 0),
-                float(latest.get("total_net_carbs") or 0),
-            )
-            fat, fib = (
-                float(latest.get("total_fat") or 0),
-                float(latest.get("total_fiber") or 0),
-            )
+            cals = float(latest.get("total_calories") or 0)
+            prot = float(latest.get("total_protein") or 0)
+            net_c = float(latest.get("total_net_carbs") or 0)
+            fat = float(latest.get("total_fat") or 0)
+            fib = float(latest.get("total_fiber") or 0)
 
-            # Status Indicators
             nc_dot = "🟢" if net_c <= NC_LIMIT else "🔴"
             fat_dot = "🟢" if fat <= TARGET_FAT_MAX else "🔴"
             fib_dot = "🟢" if fib >= TARGET_FIBER_MIN else "🔴"
@@ -118,7 +111,7 @@ with tab1:
                 f"{int(fib - TARGET_FIBER_MIN)}g vs Min",
             )
     except Exception as e:
-        st.error(f"Nutrition Error: {e}")
+        st.error(f"Nutrition Load Error: {e}")
 
     st.divider()
     col_a, col_b = st.columns(2)
@@ -129,7 +122,7 @@ with tab1:
             f_dict = {f["food_name"]: f for f in f_query.data}
             sel = st.selectbox("Select Item", options=list(f_dict.keys()), index=None)
             if sel:
-                srv = st.number_input("Servings", 0.1, 10.0, 1.0)
+                srv = st.number_input("Servings", 0.1, 10.0, 1.0, step=0.1)
                 if st.button("Log Food Entry"):
                     f_id = f_dict[sel].get("food_id") or f_dict[sel].get("id")
                     supabase.table("daily_logs").insert(
@@ -141,18 +134,17 @@ with tab1:
                         }
                     ).execute()
                     st.rerun()
+
     with col_b:
         if st.session_state.is_admin:
             st.markdown("### ➕ Admin: Create Food")
-            with st.form("add_food"):
+            with st.form("add_food_form", clear_on_submit=True):
                 fn = st.text_input("New Food Name")
                 f_c1, f_c2, f_c3 = st.columns(3)
-                v_ca, v_pr, v_nc = (
-                    f_c1.number_input("Cals", 0),
-                    f_c2.number_input("Prot", 0),
-                    f_c3.number_input("NetC", 0),
-                )
-                if st.form_submit_button("Create & Log"):
+                v_ca = f_c1.number_input("Cals", 0)
+                v_pr = f_c2.number_input("Prot", 0)
+                v_nc = f_c3.number_input("NetC", 0)
+                if st.form_submit_button("Create & Log Item"):
                     res = (
                         supabase.table("foods")
                         .insert(
@@ -166,7 +158,7 @@ with tab1:
                         .execute()
                     )
                     if res.data:
-                        f_id = res.data[0].get("id")
+                        f_id = res.data[0].get("id") or res.data[0].get("food_id")
                         supabase.table("daily_logs").insert(
                             {
                                 "food_id": f_id,
@@ -180,34 +172,44 @@ with tab1:
 # --- TAB 2: HEALTH METRICS ---
 with tab2:
     try:
-        res = (
+        h_res = (
             supabase.table("health_metrics")
             .select("*")
             .eq("user_id", active_user)
             .order("date", desc=False)
             .execute()
         )
-        df = pd.DataFrame(res.data) if res.data else pd.DataFrame()
-        if not df.empty:
-            df["ts"] = pd.to_datetime(
-                df["date"].astype(str) + " " + df["time"].fillna("00:00:00").astype(str)
+        df_h = pd.DataFrame(h_res.data) if h_res.data else pd.DataFrame()
+
+        if not df_h.empty:
+            df_h["ts"] = pd.to_datetime(
+                df_h["date"].astype(str)
+                + " "
+                + df_h["time"].fillna("00:00:00").astype(str)
             )
 
-            st.subheader("📊 Trends")
-            # Fixed height avoids resizing on scroll
+            st.subheader("📊 Trends & Progress")
+            # FIXED HEIGHT CHARTS
             w_chart = (
-                alt.Chart(df.dropna(subset=["weight_lb"]))
+                alt.Chart(df_h.dropna(subset=["weight_lb"]))
                 .mark_line(point=True, color="#3498db")
-                .encode(x="ts:T", y=alt.Y("weight_lb:Q", scale=alt.Scale(zero=False)))
+                .encode(
+                    x=alt.X("ts:T", title="Timeline"),
+                    y=alt.Y(
+                        "weight_lb:Q", scale=alt.Scale(zero=False), title="Weight (lbs)"
+                    ),
+                    tooltip=["date", "weight_lb"],
+                )
                 .properties(height=250)
             )
             st.altair_chart(w_chart, use_container_width=True)
 
         st.divider()
-        st.subheader("➕ Manual Entries")
+        st.subheader("➕ Manual Health Entry")
         m_c1, m_c2, m_c3 = st.columns(3)
         with m_c1:
-            wv = st.number_input("Weight (lbs)", 0.0)
+            st.info("⚖️ Weight")
+            wv = st.number_input("Lbs", 0.0, key="w_in")
             if st.button("Save Weight"):
                 supabase.table("health_metrics").insert(
                     {
@@ -219,7 +221,9 @@ with tab2:
                 ).execute()
                 st.rerun()
         with m_c2:
-            bs, bd = st.number_input("Systolic", 0), st.number_input("Diastolic", 0)
+            st.error("❤️ Blood Pressure")
+            bs = st.number_input("Systolic", 0, key="sys_in")
+            bd = st.number_input("Diastolic", 0, key="dia_in")
             if st.button("Save BP"):
                 supabase.table("health_metrics").insert(
                     {
@@ -232,7 +236,8 @@ with tab2:
                 ).execute()
                 st.rerun()
         with m_c3:
-            gv = st.number_input("Glucose", 0)
+            st.success("🩸 Glucose")
+            gv = st.number_input("mg/dL", 0, key="glu_in")
             if st.button("Save Glucose"):
                 supabase.table("health_metrics").insert(
                     {
@@ -244,58 +249,63 @@ with tab2:
                 ).execute()
                 st.rerun()
     except Exception as e:
-        st.error(f"Health Error: {e}")
+        st.error(f"Health Tab Error: {e}")
 
 # --- TAB 3: ACTIVITY ---
 with tab3:
-    st.subheader(f"🏃 Workout Log")
-    with st.form("activity_form"):
+    st.subheader(f"🏃 Activity Logs ({active_user.upper()})")
+    with st.form("activity_form", clear_on_submit=True):
         f1, f2 = st.columns(2)
-        nm, cat = (
-            f1.text_input("Exercise"),
-            f2.selectbox("Type", ["Strength", "Cardio", "Endurance"]),
-        )
-        s, r, w = st.columns(3)
-        v_s, v_r, v_w = (
-            s.number_input("Sets", 0),
-            r.number_input("Reps", 0),
-            w.number_input("Weight", 0),
-        )
+        ex_name = f1.text_input("Exercise Name")
+        ex_cat = f2.selectbox("Category", ["Strength", "Cardio", "Endurance"])
+
+        m1, m2, m3, m4 = st.columns(4)
+        v_sets = m1.number_input("Sets", 0)
+        v_reps = m2.number_input("Reps", 0)
+        v_weight = m3.number_input("Weight", 0)
+        v_dist = m4.number_input("Miles/Mins", 0.0)
+
         if st.form_submit_button("Log Activity"):
             supabase.table("activity_logs").insert(
                 {
                     "log_date": str(datetime.now().date()),
-                    "exercise_name": nm,
-                    "activity_category": cat,
-                    "sets": v_s,
-                    "reps": v_r,
-                    "weight_lb": v_w,
+                    "exercise_name": ex_name,
+                    "activity_category": ex_cat,
+                    "sets": v_sets,
+                    "reps": v_reps,
+                    "weight_lb": v_weight,
+                    "distance_miles": v_dist,
                     "user_id": record_owner,
                 }
             ).execute()
             st.rerun()
 
-# --- TAB 4: REPORTS ---
+# --- TAB 4: REPORTS & EXPORT ---
 with tab4:
-    st.subheader("📥 Data Management")
-    tbl_name = st.selectbox(
-        "Select Table", ["health_metrics", "daily_logs", "activity_logs", "foods"]
+    st.subheader("📥 Master Report & Data Export")
+
+    report_tbl = st.selectbox(
+        "Select Data Source", ["health_metrics", "daily_logs", "activity_logs", "foods"]
     )
 
-    query = supabase.table(tbl_name).select("*")
-    if tbl_name != "foods":
-        query = query.eq("user_id", active_user)
+    # Logic to filter or show all
+    q = supabase.table(report_tbl).select("*")
+    if report_tbl != "foods":
+        q = q.eq("user_id", active_user)
 
-    rep_data = query.order("created_at", desc=True).execute()
-    if rep_data.data:
-        df_rep = pd.DataFrame(rep_data.data)
-        st.dataframe(df_rep, use_container_width=True)
+    rep_res = q.order("created_at", desc=True).execute()
 
-        # WORKING CSV EXPORT
-        csv = df_rep.to_csv(index=False).encode("utf-8")
+    if rep_res.data:
+        df_final = pd.DataFrame(rep_res.data)
+        st.dataframe(df_final, use_container_width=True)
+
+        # MASTER EXPORT BUTTON
+        csv = df_final.to_csv(index=False).encode("utf-8")
         st.download_button(
-            label=f"Export {tbl_name} to CSV",
+            label=f"💾 Download {report_tbl.replace('_', ' ').title()} as CSV",
             data=csv,
-            file_name=f"{active_user}_{tbl_name}_{datetime.now().strftime('%Y%m%d')}.csv",
+            file_name=f"{active_user}_{report_tbl}_{datetime.now().strftime('%Y%m%d')}.csv",
             mime="text/csv",
         )
+    else:
+        st.info("No data found for this selection.")
