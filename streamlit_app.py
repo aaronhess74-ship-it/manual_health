@@ -418,63 +418,113 @@ with tab2:
     except Exception as e:
         st.error(f"Health Tab Error: {e}")
 
-# --- TAB 3: ACTIVITY (RESTORED DYNAMIC INPUTS) ---
+# --- TAB 3: ACTIVITY (EDIT + DYNAMIC RADIO PRESERVED) ---
 with tab3:
     st.subheader(f"🏃 Activity Tracking ({active_user.upper()})")
 
-    # 1. The Category Selector
-    cat = st.radio("Workout Type", ["Strength", "Cardio", "Endurance"], horizontal=True)
+    # 1. Session State for Editing
+    edit_act_id = st.session_state.get("editing_act_id", None)
+    edit_act_vals = st.session_state.get("editing_act_vals", {})
+
+    # Determine default category index for the radio button
+    cat_options = ["Strength", "Cardio", "Endurance"]
+    default_cat_idx = 0
+    if edit_act_id and edit_act_vals.get("activity_category") in cat_options:
+        default_cat_idx = cat_options.index(edit_act_vals.get("activity_category"))
+
+    # 2. The Category Selector (Preserved)
+    cat = st.radio("Workout Type", cat_options, index=default_cat_idx, horizontal=True)
 
     with st.form("activity_log_form", clear_on_submit=True):
         f1, f2 = st.columns(2)
-        da = f1.date_input("Date", datetime.now())
-        nm = f2.text_input("Exercise Name (e.g. Bench Press, Run)")
+        # Handle Date: use existing date if editing, otherwise today
+        default_date = datetime.now()
+        if edit_act_id and edit_act_vals.get("log_date"):
+            default_date = pd.to_datetime(edit_act_vals.get("log_date"))
+
+        da = f1.date_input("Date", default_date)
+        nm = f2.text_input(
+            "Exercise Name", value=edit_act_vals.get("exercise_name", "")
+        )
 
         st.markdown("---")
-        # 2. Dynamic Input Grid based on Radio Selection
+        # 3. Dynamic Input Grid (Preserved & Pre-filled)
         c1, c2, c3, c4, c5 = st.columns(5)
-
-        # Initialize variables to None/0
         v_sets, v_reps, v_weight, v_dur, v_dist = 0, 0, 0, 0, 0.0
 
-        # Strength: Sets, Reps, Weight
         if cat == "Strength":
-            v_sets = c1.number_input("Sets", min_value=0, step=1)
-            v_reps = c2.number_input("Reps", min_value=0, step=1)
-            v_weight = c3.number_input("Weight (lbs)", min_value=0, step=5)
+            v_sets = c1.number_input(
+                "Sets", min_value=0, value=int(edit_act_vals.get("sets") or 0)
+            )
+            v_reps = c2.number_input(
+                "Reps", min_value=0, value=int(edit_act_vals.get("reps") or 0)
+            )
+            v_weight = c3.number_input(
+                "Weight (lbs)",
+                min_value=0,
+                value=int(edit_act_vals.get("weight_lb") or 0),
+            )
 
-        # Cardio: Duration, Distance
         elif cat == "Cardio":
-            v_dur = c1.number_input("Duration (mins)", min_value=0, step=1)
-            v_dist = c2.number_input("Distance (miles)", min_value=0.0, step=0.1)
+            v_dur = c1.number_input(
+                "Duration (mins)",
+                min_value=0,
+                value=int(edit_act_vals.get("duration_min") or 0),
+            )
+            v_dist = c2.number_input(
+                "Distance (miles)",
+                min_value=0.0,
+                value=float(edit_act_vals.get("distance_miles") or 0.0),
+            )
 
-        # Endurance: Sets, Reps, Duration
         elif cat == "Endurance":
-            v_sets = c1.number_input("Sets", min_value=0, step=1)
-            v_reps = c2.number_input("Reps", min_value=0, step=1)
-            v_dur = c3.number_input("Duration (mins)", min_value=0, step=1)
+            v_sets = c1.number_input(
+                "Sets", min_value=0, value=int(edit_act_vals.get("sets") or 0)
+            )
+            v_reps = c2.number_input(
+                "Reps", min_value=0, value=int(edit_act_vals.get("reps") or 0)
+            )
+            v_dur = c3.number_input(
+                "Duration (mins)",
+                min_value=0,
+                value=int(edit_act_vals.get("duration_min") or 0),
+            )
 
         st.markdown(" ")
-        if st.form_submit_button("Log Activity"):
-            if nm:  # Simple check to ensure exercise name isn't blank
-                supabase.table("activity_logs").insert(
-                    {
-                        "log_date": str(da),
-                        "exercise_name": nm,
-                        "activity_category": cat,
-                        "sets": v_sets if v_sets > 0 else None,
-                        "reps": v_reps if v_reps > 0 else None,
-                        "weight_lb": v_weight if v_weight > 0 else None,
-                        "duration_min": v_dur if v_dur > 0 else None,
-                        "distance_miles": v_dist if v_dist > 0 else None,
-                        "user_id": record_owner,
-                    }
-                ).execute()
+        btn_label = "Update Activity" if edit_act_id else "Log Activity"
+        if st.form_submit_button(btn_label):
+            if nm:
+                payload = {
+                    "log_date": str(da),
+                    "exercise_name": nm,
+                    "activity_category": cat,
+                    "sets": v_sets if v_sets > 0 else None,
+                    "reps": v_reps if v_reps > 0 else None,
+                    "weight_lb": v_weight if v_weight > 0 else None,
+                    "duration_min": v_dur if v_dur > 0 else None,
+                    "distance_miles": v_dist if v_dist > 0 else None,
+                    "user_id": record_owner,
+                }
+
+                if edit_act_id:
+                    supabase.table("activity_logs").update(payload).eq(
+                        "activity_id", edit_act_id
+                    ).execute()
+                    st.session_state.editing_act_id = None
+                    st.session_state.editing_act_vals = {}
+                else:
+                    supabase.table("activity_logs").insert(payload).execute()
                 st.rerun()
             else:
                 st.warning("Please enter an exercise name.")
 
-    # 3. Recent Activity History with Delete
+    if edit_act_id:
+        if st.button("Cancel Edit"):
+            st.session_state.editing_act_id = None
+            st.session_state.editing_act_vals = {}
+            st.rerun()
+
+    # 4. History with Edit/Delete
     st.divider()
     st.subheader("📜 Recent Workouts")
     act_res = (
@@ -488,9 +538,8 @@ with tab3:
 
     if act_res.data:
         for r in act_res.data:
-            ac1, ac2, ac3 = st.columns([4, 2, 1])
+            ac1, ac2, ac3, ac4 = st.columns([4, 2, 0.5, 0.5])
 
-            # Format the display string based on what data exists
             details = []
             if r.get("sets"):
                 details.append(f"{r['sets']} sets")
@@ -508,11 +557,17 @@ with tab3:
             )
             ac2.write(", ".join(details))
 
-            # Delete logic
-            a_id = r.get("activity_id") or r.get("id")
-            if ac3.button("🗑️", key=f"del_act_{a_id}"):
-                col_n = "activity_id" if "activity_id" in r else "id"
-                supabase.table("activity_logs").delete().eq(col_n, a_id).execute()
+            a_id = r.get("activity_id")
+
+            if ac3.button("✏️", key=f"ed_act_{a_id}"):
+                st.session_state.editing_act_id = a_id
+                st.session_state.editing_act_vals = r
+                st.rerun()
+
+            if ac4.button("🗑️", key=f"de_act_{a_id}"):
+                supabase.table("activity_logs").delete().eq(
+                    "activity_id", a_id
+                ).execute()
                 st.rerun()
 
 # --- TAB 4: REPORTS & EXPORTS (FIXED MASTER EXPORT) ---
