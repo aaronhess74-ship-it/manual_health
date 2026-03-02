@@ -90,7 +90,7 @@ with tab1:
                 float(latest.get("total_fiber", 0)),
             )
 
-            # Net Carbs: Green if <= 100
+            # Net Carbs: Strictly Red if > 100
             nc_status = "🟢" if net_c <= NC_LIMIT else "🔴"
 
             c1.metric("Calories", f"{int(cals)}", f"{int(TARGET_CALORIES - cals)} Left")
@@ -126,13 +126,14 @@ with tab1:
     with col_b:
         st.markdown("### ➕ Admin: Create Food")
         if st.session_state.is_admin:
-            with st.form("add_food_macro"):
+            with st.form("add_food_macro_full"):
                 fn = st.text_input("New Food Name")
-                f_c1, f_c2, f_c3, f_c4 = st.columns(4)
+                f_c1, f_c2, f_c3, f_c4, f_c5 = st.columns(5)
                 v_ca = f_c1.number_input("Cals", 0)
                 v_pr = f_c2.number_input("Prot", 0)
-                v_nc = f_c3.number_input("NetC", 0)
-                v_fb = f_c4.number_input("Fib", 0)
+                v_ft = f_c3.number_input("Fat", 0)
+                v_nc = f_c4.number_input("NetC", 0)
+                v_fb = f_c5.number_input("Fib", 0)
                 if st.form_submit_button("Create & Log"):
                     res = (
                         supabase.table("foods")
@@ -141,6 +142,7 @@ with tab1:
                                 "food_name": fn,
                                 "calories": v_ca,
                                 "protein_g": v_pr,
+                                "fat_g": v_ft,
                                 "net_carbs_g": v_nc,
                                 "fiber_g": v_fb,
                             }
@@ -157,6 +159,8 @@ with tab1:
                             }
                         ).execute()
                         st.rerun()
+        else:
+            st.info("Custom food entry restricted to Admin.")
 
     st.divider()
     st.subheader("🗑️ Today's Logged Items")
@@ -323,10 +327,11 @@ with tab2:
 with tab3:
     st.subheader(f"🏃 Activity Tracking ({active_user.upper()})")
     cat = st.radio("Category", ["Strength", "Cardio", "Endurance"], horizontal=True)
-    with st.form("act_log"):
+    with st.form("act_log_full"):
         f1, f2 = st.columns(2)
         da, nm = f1.date_input("Date", datetime.now()), f2.text_input("Exercise Name")
         c1, c2, c3, c4, c5 = st.columns(5)
+        # Endurance includes all fields
         s = c1.number_input("Sets", 0) if cat in ["Strength", "Endurance"] else 0
         r = c2.number_input("Reps", 0) if cat in ["Strength", "Endurance"] else 0
         w = c3.number_input("Weight", 0) if cat in ["Strength", "Endurance"] else 0
@@ -355,7 +360,7 @@ with tab3:
         .select("*")
         .eq("user_id", active_user)
         .order("log_date", desc=True)
-        .limit(10)
+        .limit(15)
         .execute()
     )
     if act_res.data:
@@ -378,10 +383,9 @@ with tab4:
         if res.data:
             st.dataframe(pd.DataFrame(res.data), use_container_width=True)
 
-    # --- MASTER EXPORT (OUTSIDE OF VIEWER LOGIC) ---
     st.divider()
     st.subheader("📥 Master Export")
-    if st.button("Prepare Health Data Export"):
+    if st.button("Prepare Data Export"):
         try:
             exp = (
                 supabase.table("health_metrics")
@@ -392,11 +396,11 @@ with tab4:
             )
             if exp:
                 st.download_button(
-                    "Download CSV",
+                    "Download Health CSV",
                     data=pd.DataFrame(exp).to_csv(index=False).encode("utf-8"),
-                    file_name=f"{active_user}_health_export.csv",
+                    file_name="health_export.csv",
                 )
             else:
-                st.info("No records found for export.")
+                st.info("No records found.")
         except Exception as e:
             st.error(f"Export Error: {e}")
