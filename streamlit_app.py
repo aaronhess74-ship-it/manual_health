@@ -14,23 +14,6 @@ st.set_page_config(
     page_title="Health Dashboard Pro", layout="wide", initial_sidebar_state="collapsed"
 )
 
-# --- CSS STYLING ---
-st.markdown(
-    """
-    <style>
-    .metric-card {
-        background-color: #ffffff;
-        padding: 20px;
-        border-radius: 10px;
-        box-shadow: 2px 2px 5px rgba(0,0,0,0.05);
-        border: 1px solid #efefef;
-    }
-    .stMetric { background-color: #f8f9fa; padding: 10px; border-radius: 8px; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
 
 # --- ACCESS CONTROL ---
 def check_password():
@@ -64,8 +47,7 @@ def check_password():
 if not check_password():
     st.stop()
 
-# --- DATA SCOPING (STEP 3) ---
-# Admin can toggle views; Guest is locked to 'guest' data
+# --- DATA SCOPING ---
 if st.session_state.is_admin:
     view_mode = st.sidebar.radio(
         "🔎 View Mode", ["My Data (Admin)", "Tester Data (Guest)"]
@@ -75,10 +57,7 @@ else:
     active_user = "guest"
     st.sidebar.success("Logged in as Guest: Data isolation active.")
 
-# The ID used for any new records created during this session
 record_owner = "admin" if st.session_state.is_admin else "guest"
-
-st.title("💪 My Health Dashboard")
 
 # --- TARGETS ---
 TARGET_CALORIES, TARGET_PROTEIN = 1800, 160
@@ -91,7 +70,6 @@ tab1, tab2, tab3, tab4 = st.tabs(
 # --- TAB 1: NUTRITION ---
 with tab1:
     try:
-        # Filtered by the active_user (admin or guest)
         response = (
             supabase.table("daily_variance")
             .select("*")
@@ -104,10 +82,11 @@ with tab1:
             latest = response.data[0]
             st.subheader(f"Daily Status: {latest['date']} ({active_user.upper()})")
             c1, c2, c3, c4, c5 = st.columns(5)
-
-            cals = float(latest.get("total_calories", 0))
-            prot = float(latest.get("total_protein", 0))
-            net_c = float(latest.get("total_net_carbs", 0))
+            cals, prot, net_c = (
+                float(latest.get("total_calories", 0)),
+                float(latest.get("total_protein", 0)),
+                float(latest.get("total_net_carbs", 0)),
+            )
 
             def get_status(curr, target, ceil=True):
                 if ceil:
@@ -127,15 +106,12 @@ with tab1:
             )
             c4.metric("Total Fat", f"{int(latest.get('total_fat', 0))}g")
             c5.metric("Fiber", f"{int(latest.get('total_fiber', 0))}g")
-        else:
-            st.info(f"No nutrition data found for {active_user.upper()} today.")
     except Exception as e:
-        st.error(f"Nutrition Load Error: {e}")
+        st.error(f"Nutrition Error: {e}")
 
     st.divider()
     st.subheader("🍴 Log a Meal")
     col_a, col_b = st.columns(2)
-
     with col_a:
         st.markdown("### Search Food Library")
         f_query = supabase.table("foods").select("*").order("food_name").execute()
@@ -154,10 +130,8 @@ with tab1:
                         }
                     ).execute()
                     st.rerun()
-
     with col_b:
         st.markdown("### Add Custom Item")
-        # GUESTS can add records, but only ADMIN can permanently add to the main Food Library
         if st.session_state.is_admin:
             with st.form("new_food_form"):
                 n_name = st.text_input("Name")
@@ -179,29 +153,9 @@ with tab1:
                         ).execute()
                         st.rerun()
         else:
-            st.warning("Only Admin can add new items to the global Food Library.")
+            st.warning("Only Admin can add new items to global library.")
 
-    st.divider()
-    st.subheader(f"🗑️ {active_user.title()} Today's Entries")
-    h_res = (
-        supabase.table("daily_logs")
-        .select("log_id, servings, user_id, foods(food_name, calories)")
-        .eq("log_date", str(datetime.now().date()))
-        .eq("user_id", active_user)
-        .execute()
-    )
-    if h_res.data:
-        for item in h_res.data:
-            hc1, hc2, hc3 = st.columns([3, 1, 1])
-            hc1.write(f"**{item['foods']['food_name']}**")
-            hc2.write(f"{int(item['foods']['calories'] * item['servings'])} kcal")
-            if hc3.button("🗑️", key=f"del_nut_{item['log_id']}"):
-                supabase.table("daily_logs").delete().eq(
-                    "log_id", item["log_id"]
-                ).execute()
-                st.rerun()
-
-# --- TAB 2: HEALTH METRICS ---
+# --- TAB 2: HEALTH METRICS (NEW TRENDS) ---
 with tab2:
     try:
         res = (
@@ -220,7 +174,8 @@ with tab2:
                 + df_v["time"].fillna("00:00:00").astype(str)
             )
 
-            st.subheader(f"📊 {active_user.title()} Weight Trend")
+            # --- TREND 1: WEIGHT ---
+            st.subheader(f"⚖️ {active_user.title()} Weight Trend")
             w_df = df_v.dropna(subset=["weight_lb"])
             if not w_df.empty:
                 w_chart = (
@@ -229,17 +184,51 @@ with tab2:
                     .encode(
                         x="ts:T", y=alt.Y("weight_lb:Q", scale=alt.Scale(zero=False))
                     )
-                    .properties(height=350)
+                    .properties(height=250)
                 )
                 st.altair_chart(w_chart, use_container_width=True)
+
+            # --- TREND 2: BLOOD PRESSURE ---
+            st.subheader(f"❤️ {active_user.title()} Blood Pressure Trend")
+            bp_df = df_v.dropna(
+                subset=["blood_pressure_systolic", "blood_pressure_diastolic"]
+            )
+            if not bp_df.empty:
+                # Melting data for Altair multi-line chart
+                bp_melted = bp_df.melt(
+                    id_vars=["ts"],
+                    value_vars=["blood_pressure_systolic", "blood_pressure_diastolic"],
+                    var_name="Metric",
+                    value_name="Value",
+                )
+                bp_chart = (
+                    alt.Chart(bp_melted)
+                    .mark_line(point=True)
+                    .encode(
+                        x="ts:T", y=alt.Y("Value:Q", title="mmHg"), color="Metric:N"
+                    )
+                    .properties(height=250)
+                )
+                st.altair_chart(bp_chart, use_container_width=True)
+
+            # --- TREND 3: GLUCOSE ---
+            st.subheader(f"🩸 {active_user.title()} Glucose Trend")
+            g_df = df_v.dropna(subset=["blood_glucose"])
+            if not g_df.empty:
+                g_chart = (
+                    alt.Chart(g_df)
+                    .mark_line(point=True, color="#e74c3c")
+                    .encode(x="ts:T", y=alt.Y("blood_glucose:Q", title="mg/dL"))
+                    .properties(height=250)
+                )
+                st.altair_chart(g_chart, use_container_width=True)
 
         st.divider()
         st.subheader("➕ Log New Metrics")
         c_bp, c_wt, c_gl = st.columns(3)
         now = datetime.now()
-
         with c_bp:
-            with st.expander("❤️ Blood Pressure", expanded=True):
+            with st.expander("❤️ BP", expanded=True):
                 sys, dia = (
                     st.number_input("Sys", 0, 250, 120),
                     st.number_input("Dia", 0, 150, 80),
@@ -255,7 +244,6 @@ with tab2:
                         }
                     ).execute()
                     st.rerun()
-
         with c_wt:
             with st.expander("⚖️ Weight", expanded=True):
                 wt_val = st.number_input("Lbs", 0.0, 500.0, 180.0)
@@ -269,7 +257,6 @@ with tab2:
                         }
                     ).execute()
                     st.rerun()
-
         with c_gl:
             with st.expander("🩸 Glucose", expanded=True):
                 gl_val = st.number_input("mg/dL", 0, 500, 100)
@@ -284,18 +271,17 @@ with tab2:
                     ).execute()
                     st.rerun()
     except Exception as e:
-        st.error(f"Health Load Error: {e}")
+        st.error(f"Health Error: {e}")
 
-# --- TAB 3: ACTIVITY ---
+# --- TAB 3: ACTIVITY (RESTORED ENDURANCE) ---
 with tab3:
     st.subheader(f"🏃 Log {active_user.title()} Activity")
-    act_type = st.radio("Type", ["Strength", "Cardio"], horizontal=True)
+    # RESTORED: All 3 radio buttons
+    act_type = st.radio("Type", ["Strength", "Cardio", "Endurance"], horizontal=True)
 
     with st.form("act_form", clear_on_submit=True):
-        a_date = st.date_input("Date")
-        a_name = st.text_input("Exercise Name")
+        a_date, a_name = st.date_input("Date"), st.text_input("Exercise Name")
         c1, c2, c3 = st.columns(3)
-
         sets, reps, weight_val, dur, dist = 0, 0, 0, 0, 0
         if act_type == "Strength":
             sets, reps, weight_val = (
@@ -335,21 +321,17 @@ with tab3:
     if a_res.data:
         st.dataframe(pd.DataFrame(a_res.data), use_container_width=True)
 
-# --- TAB 4: REPORTS & MASTER VIEWER ---
+# --- TAB 4: REPORTS ---
 with tab4:
     st.subheader("📊 Master Table Viewer")
     view_tbl = st.selectbox(
         "Select Table",
         ["daily_variance", "health_metrics", "activity_logs", "daily_logs", "foods"],
     )
-
     try:
-        # Tables that have user_id get filtered by active_user
         query = supabase.table(view_tbl).select("*")
         if view_tbl != "foods":
             query = query.eq("user_id", active_user)
-
-        # Determine sort column
         sc = (
             "date"
             if "date" in view_tbl or "variance" in view_tbl
@@ -358,11 +340,8 @@ with tab4:
             else "food_name"
         )
         tbl_res = query.order(sc, desc=True).limit(50).execute()
-
         if tbl_res.data:
             st.dataframe(pd.DataFrame(tbl_res.data), use_container_width=True)
-        else:
-            st.write("No records found for this user in this table.")
     except Exception as e:
         st.error(f"Viewer Error: {e}")
 
@@ -384,7 +363,6 @@ with tab4:
                 .execute()
                 .data
             )
-
             rows = []
             for n in nut:
                 rows.append(
@@ -405,7 +383,6 @@ with tab4:
                             "Value": m["weight_lb"],
                         }
                     )
-
             if rows:
                 df_exp = pd.DataFrame(rows).sort_values("Date", ascending=False)
                 st.download_button(
