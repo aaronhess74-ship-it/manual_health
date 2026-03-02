@@ -187,9 +187,10 @@ with tab1:
                 supabase.table("daily_logs").delete().eq(col_n, l_id).execute()
                 st.rerun()
 
-# --- TAB 2: HEALTH METRICS ---
+# --- TAB 2: HEALTH METRICS (RESTORED PERFECT CHARTS) ---
 with tab2:
     try:
+        # Fetch data for active user
         h_res = (
             supabase.table("health_metrics")
             .select("*")
@@ -200,26 +201,40 @@ with tab2:
         df_h = pd.DataFrame(h_res.data) if h_res.data else pd.DataFrame()
 
         if not df_h.empty:
+            # 1. Create a clean timestamp for the X-axis and a pretty string for the Tooltip
             df_h["ts"] = pd.to_datetime(
                 df_h["date"].astype(str)
                 + " "
                 + df_h["time"].fillna("00:00:00").astype(str)
             )
+            df_h["display_time"] = df_h["ts"].dt.strftime("%b %d, %I:%M %p")
+
             st.subheader("📊 Health Trends")
+
+            # 2. Perfected Weight Chart (Fixed Height + Hover Tooltips)
             w_chart = (
                 alt.Chart(df_h.dropna(subset=["weight_lb"]))
-                .mark_line(point=True, color="#3498db")
+                .mark_line(
+                    point=alt.OverlayMarkDef(color="#3498db", size=60), color="#3498db"
+                )
                 .encode(
                     x=alt.X("ts:T", title="Timeline"),
                     y=alt.Y(
                         "weight_lb:Q", scale=alt.Scale(zero=False), title="Weight (lbs)"
                     ),
+                    tooltip=[
+                        alt.Tooltip("display_time", title="Logged At"),
+                        alt.Tooltip("weight_lb", title="Weight (lbs)"),
+                    ],
                 )
                 .properties(height=250)
             )
+
             st.altair_chart(w_chart, use_container_width=True)
 
         st.divider()
+
+        # --- INPUTS (LOCKED - NO CHANGES) ---
         st.subheader("➕ Manual Entries")
         m_c1, m_c2, m_c3 = st.columns(3)
         with m_c1:
@@ -286,7 +301,10 @@ with tab2:
                     )
                 if r.get("blood_glucose"):
                     parts.append(f"G: {r['blood_glucose']}mg/dL")
+
                 hc1.write(f"**{r.get('date')}** | {', '.join(parts)}")
+
+                # Fixed Delete Mapping
                 h_id = r.get("metric_id") or r.get("id")
                 if hc3.button("🗑️", key=f"del_h_{h_id}"):
                     col_n = "metric_id" if "metric_id" in r else "id"
