@@ -3,6 +3,7 @@ from supabase import create_client
 from datetime import datetime
 import pandas as pd
 import altair as alt
+import io
 
 # 1. Connection
 url, key = st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"]
@@ -128,7 +129,7 @@ with tab1:
                     st.rerun()
 
     st.divider()
-    st.markdown("### 📝 Detailed Food Entry")
+    st.markdown("### 📝 Food Entry")
     ed_n = st.session_state.edit_data if st.session_state.edit_mode == "nutr" else {}
     f_all = supabase.table("foods").select("*").order("food_name").execute().data
     if f_all:
@@ -165,12 +166,10 @@ with tab1:
                     supabase.table("daily_logs").insert(payload).execute()
                 st.session_state.update({"edit_mode": None, "edit_data": {}})
                 st.rerun()
-        if ed_n:
-            if st.button("Cancel Edit"):
-                st.session_state.update({"edit_mode": None, "edit_data": {}})
-                st.rerun()
+        if ed_n and st.button("Cancel Food Edit"):
+            st.session_state.update({"edit_mode": None, "edit_data": {}})
+            st.rerun()
 
-    st.divider()
     logs = (
         supabase.table("daily_logs")
         .select("*, foods(food_name, calories)")
@@ -197,7 +196,7 @@ with tab1:
 
 # --- TAB 2: HEALTH METRICS ---
 with tab2:
-    st.subheader("🩺 Clinical Data Entry")
+    st.subheader("🩺 Clinical Data")
     ed_h = st.session_state.edit_data if st.session_state.edit_mode == "health" else {}
     with st.form("health_form"):
         c1, c2, c3 = st.columns(3)
@@ -254,8 +253,10 @@ with tab2:
         df_h["ts"] = pd.to_datetime(
             df_h["date"].astype(str) + " " + df_h["time"].fillna("00:00:00").astype(str)
         )
+
+        # RESTORED CHART: Blood Pressure + Glucose dual lines
         st.subheader("📊 Health Trends")
-        chart = (
+        chart_bp = (
             alt.Chart(df_h)
             .transform_fold(
                 ["blood_pressure_systolic", "blood_pressure_diastolic"],
@@ -263,27 +264,40 @@ with tab2:
             )
             .encode(
                 x="ts:T",
-                y=alt.Y("Value:Q", scale=alt.Scale(zero=False)),
+                y=alt.Y("Value:Q", scale=alt.Scale(zero=False), title="Blood Pressure"),
                 color="Metric:N",
             )
             .mark_line(point=True)
-            .properties(height=300)
+            .properties(height=250)
         )
-        st.altair_chart(chart, use_container_width=True)
+
+        chart_glucose = (
+            alt.Chart(df_h)
+            .encode(
+                x="ts:T",
+                y=alt.Y(
+                    "blood_glucose:Q", scale=alt.Scale(zero=False), title="Glucose"
+                ),
+                color=alt.value("#FFA500"),
+            )
+            .mark_line(point=True)
+            .properties(height=150)
+        )
+
+        st.altair_chart(chart_bp & chart_glucose, use_container_width=True)
 
 # --- TAB 3: ACTIVITY ---
 with tab3:
     st.subheader("🏃 Training Log")
     ed_a = st.session_state.edit_data if st.session_state.edit_mode == "act" else {}
+
+    # RESTORED: Category Radio Buttons
+    cat_list = ["Strength", "Cardio", "Endurance"]
+    cat_idx = cat_list.index(ed_a.get("activity_category", "Strength"))
+    cat_a = st.radio("Activity Category", cat_list, index=cat_idx, horizontal=True)
+
     with st.form("activity_form"):
         name_a = st.text_input("Exercise Name", value=ed_a.get("exercise_name", ""))
-        cat_list = ["Strength", "Cardio", "Endurance"]
-        cat_a = st.selectbox(
-            "Category",
-            cat_list,
-            index=cat_list.index(ed_a.get("activity_category", "Strength")),
-        )
-
         c1, c2, c3, c4, c5 = st.columns(5)
         sets = c1.number_input("Sets", 0, 50, int(ed_a.get("sets", 0)))
         reps = c2.number_input("Reps", 0, 1000, int(ed_a.get("reps", 0)))
@@ -295,7 +309,7 @@ with tab3:
             "Distance (mi)", 0.0, 100.0, float(ed_a.get("distance_miles", 0.0))
         )
 
-        if st.form_submit_button("Save Activity"):
+        if st.form_submit_button("Update Activity" if ed_a else "Save Activity"):
             payload = {
                 "log_date": str(datetime.now().date()),
                 "exercise_name": name_a,
@@ -315,6 +329,9 @@ with tab3:
                 supabase.table("activity_logs").insert(payload).execute()
             st.session_state.update({"edit_mode": None, "edit_data": {}})
             st.rerun()
+    if ed_a and st.button("Cancel Activity Edit"):
+        st.session_state.update({"edit_mode": None, "edit_data": {}})
+        st.rerun()
 
     st.divider()
     a_logs = (
@@ -322,7 +339,7 @@ with tab3:
         .select("*")
         .eq("user_id", active_user)
         .order("log_date", desc=True)
-        .limit(5)
+        .limit(10)
         .execute()
         .data
     )
@@ -340,29 +357,40 @@ with tab3:
 
 # --- TAB 4: REPORTS & MASTER EXPORT ---
 with tab4:
-    st.subheader("📊 Master Data Management")
-    tbl_choice = st.selectbox(
-        "Select Table to View/Export",
-        ["health_metrics", "activity_logs", "daily_logs", "foods", "daily_variance"],
-    )
+    st.subheader("📊 Data & Export Central")
 
-    # Precise query logic based on schema
-    query = supabase.table(tbl_choice).select("*")
-    if tbl_choice not in ["foods", "daily_variance"]:
+    # RESTORED: Master Export Feature
+    col_exp1, col_exp2 = st.columns([1, 2])
+    with col_exp1:
+        st.markdown("### Export all data")
+        export_target = st.selectbox(
+            "Select Table",
+            [
+                "daily_logs",
+                "health_metrics",
+                "activity_logs",
+                "foods",
+                "daily_variance",
+            ],
+        )
+
+    query = supabase.table(export_target).select("*")
+    if export_target not in ["foods", "daily_variance"]:
         query = query.eq("user_id", active_user)
 
-    data = query.limit(500).execute().data
-    if data:
-        df_master = pd.DataFrame(data)
-        st.dataframe(df_master, use_container_width=True)
-
-        # FIXED EXPORT: Handles CSV encoding and dynamic filename
-        csv = df_master.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            label=f"📥 Download {tbl_choice.replace('_', ' ').title()} as CSV",
-            data=csv,
-            file_name=f"{tbl_choice}_{datetime.now().strftime('%Y%m%d')}.csv",
-            mime="text/csv",
-        )
+    export_data = query.execute().data
+    if export_data:
+        df_exp = pd.DataFrame(export_data)
+        with col_exp2:
+            st.write(f"Total records in {export_target}: {len(df_exp)}")
+            csv = df_exp.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label=f"📥 Download {export_target}.csv",
+                data=csv,
+                file_name=f"{export_target}_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+                key="master_download_btn",
+            )
+        st.dataframe(df_exp.head(50), use_container_width=True)
     else:
         st.warning("No data found for this selection.")
