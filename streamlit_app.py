@@ -1,4 +1,3 @@
-# Version 1.2.4 - Full Feature Restore + Activity Schema Fix
 import streamlit as st
 from supabase import create_client
 from datetime import datetime
@@ -344,7 +343,7 @@ with tab2:
     except Exception as e:
         st.error(f"Health Dashboard error: {e}")
 
-# --- TAB 3: ACTIVITY (The Fixed Schema Logic) ---
+# --- TAB 3: ACTIVITY (Surgically Fixed) ---
 with tab3:
     st.subheader("🏃 Log Activity")
     act_cat = st.radio("Category", ["Strength", "Cardio", "Endurance"], horizontal=True)
@@ -353,6 +352,8 @@ with tab3:
         a_date = st.date_input("Date", datetime.now().date())
         name = st.text_input("Exercise Name")
         c1, c2, c3 = st.columns(3)
+
+        # Initialize variables to send to DB
         dur, dist, s, r, w = 0.0, 0.0, 0, 0, 0
 
         if act_cat == "Strength":
@@ -367,7 +368,7 @@ with tab3:
 
         if st.form_submit_button("Log Activity"):
             if name:
-                # Payload matching your schema: activity_category, exercise_name, duration_min, distance_miles, sets, reps, weight_lbs
+                # Mapping strictly to your activity_category and exercise_name schema
                 supabase.table("activity_logs").insert(
                     {
                         "date": str(a_date),
@@ -380,7 +381,10 @@ with tab3:
                         "weight_lbs": w,
                     }
                 ).execute()
+                st.success(f"Logged {name}!")
                 st.rerun()
+            else:
+                st.warning("Please enter an exercise name.")
 
     st.divider()
     st.subheader("📜 Activity History")
