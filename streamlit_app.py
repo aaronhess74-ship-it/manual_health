@@ -194,101 +194,119 @@ with tab2:
         df = pd.DataFrame(res.data) if res.data else pd.DataFrame()
 
         if not df.empty:
+            # 1. Prepare Data
             df["ts"] = pd.to_datetime(
                 df["date"].astype(str) + " " + df["time"].fillna("00:00:00").astype(str)
             )
             df["display_time"] = df["ts"].dt.strftime("%b %d, %I:%M %p")
 
-            # Collapse logic based on Sidebar Toggle
-            if chart_granularity == "Daily Summary Only":
-                df_plot = df.sort_values("ts").groupby("date").tail(1)
-            else:
-                df_plot = df
+            st.subheader(f"📊 {active_user.title()} Interactive Trends")
+            st.info(
+                "💡 Pro Tip: Click and drag on the chart to zoom. Double-click to reset."
+            )
 
-            # 1. WEIGHT
-            st.subheader("⚖️ Weight Trend")
-            w_df = df_plot.dropna(subset=["weight_lb"])
-            if not w_df.empty:
-                w_chart = (
-                    alt.Chart(w_df)
-                    .mark_line(point=True, color="#3498db")
-                    .encode(
-                        x=alt.X("ts:T", title="Date", axis=alt.Axis(format="%b %d")),
-                        y=alt.Y(
-                            "weight_lb:Q",
-                            scale=alt.Scale(domain=[100, 300]),
-                            title="Lbs",
+            # Define a shared selection for zooming (The "Brush")
+            brush = alt.selection_interval(encodings=["x"])
+
+            def create_health_chart(data, y_col, y_label, y_domain, line_color):
+                # The Base Chart (Points + Lines)
+                base = alt.Chart(data).encode(
+                    x=alt.X(
+                        "ts:T",
+                        title="Timeline",
+                        axis=alt.Axis(
+                            format="%b %d", labelAngle=-45, grid=True, tickCount="day"
                         ),
-                        tooltip=[
-                            alt.Tooltip("display_time:N", title="Time"),
-                            alt.Tooltip("weight_lb:Q", title="Weight"),
-                        ],
-                    )
-                    .properties(height=250)
-                    .interactive()
+                    ),
+                    y=alt.Y(
+                        f"{y_col}:Q",
+                        scale=alt.Scale(domain=y_domain, zero=False),
+                        title=y_label,
+                    ),
+                    tooltip=[
+                        alt.Tooltip("display_time:N", title="Logged"),
+                        alt.Tooltip(f"{y_col}:Q", title=y_label),
+                    ],
                 )
-                st.altair_chart(w_chart, use_container_width=True)
 
-            # 2. BLOOD PRESSURE
-            st.subheader("❤️ Blood Pressure Trend")
-            bp_df = df_plot.dropna(subset=["blood_pressure_systolic"])
+                # Combine Line and Points so every entry is visible
+                line = base.mark_line(color=line_color, strokeWidth=2, opacity=0.6)
+                points = base.mark_point(color=line_color, size=60, filled=True)
+
+                # Apply the zoom selection
+                return (
+                    (line + points)
+                    .add_params(brush)
+                    .transform_filter(brush)
+                    .properties(width="container", height=300)
+                )
+
+            # --- 1. WEIGHT ---
+            w_df = df.dropna(subset=["weight_lb"])
+            if not w_df.empty:
+                st.write("**Weight (lbs)**")
+                st.altair_chart(
+                    create_health_chart(
+                        w_df, "weight_lb", "Lbs", [100, 300], "#3498db"
+                    ),
+                    use_container_width=True,
+                )
+
+            # --- 2. BLOOD PRESSURE ---
+            bp_df = df.dropna(subset=["blood_pressure_systolic"])
             if not bp_df.empty:
+                st.write("**Blood Pressure (mmHg)**")
+                # BP is unique because it has two lines
                 bp_melted = bp_df.melt(
                     id_vars=["ts", "display_time"],
                     value_vars=["blood_pressure_systolic", "blood_pressure_diastolic"],
                 )
+
                 bp_chart = (
                     alt.Chart(bp_melted)
                     .mark_line(point=True)
                     .encode(
-                        x=alt.X("ts:T", title="Date", axis=alt.Axis(format="%b %d")),
+                        x=alt.X("ts:T", axis=alt.Axis(format="%b %d", tickCount="day")),
                         y=alt.Y(
                             "value:Q", scale=alt.Scale(domain=[40, 200]), title="mmHg"
                         ),
-                        color="variable:N",
+                        color=alt.Color(
+                            "variable:N", legend=alt.Legend(title="Metric")
+                        ),
                         tooltip=[
-                            alt.Tooltip("display_time:N", title="Time"),
+                            alt.Tooltip("display_time:N", title="Logged"),
                             alt.Tooltip("value:Q"),
                         ],
                     )
-                    .properties(height=250)
+                    .add_params(brush)
+                    .transform_filter(brush)
+                    .properties(height=300)
                     .interactive()
                 )
+
                 st.altair_chart(bp_chart, use_container_width=True)
 
-            # 3. GLUCOSE
-            st.subheader("🩸 Glucose Trend")
-            g_df = df_plot.dropna(subset=["blood_glucose"])
+            # --- 3. GLUCOSE ---
+            g_df = df.dropna(subset=["blood_glucose"])
             if not g_df.empty:
-                g_chart = (
-                    alt.Chart(g_df)
-                    .mark_line(point=True, color="#e74c3c")
-                    .encode(
-                        x=alt.X("ts:T", title="Date", axis=alt.Axis(format="%b %d")),
-                        y=alt.Y(
-                            "blood_glucose:Q",
-                            scale=alt.Scale(domain=[50, 250]),
-                            title="mg/dL",
-                        ),
-                        tooltip=[
-                            alt.Tooltip("display_time:N", title="Time"),
-                            alt.Tooltip("blood_glucose:Q"),
-                        ],
-                    )
-                    .properties(height=250)
-                    .interactive()
+                st.write("**Glucose (mg/dL)**")
+                st.altair_chart(
+                    create_health_chart(
+                        g_df, "blood_glucose", "mg/dL", [50, 250], "#e74c3c"
+                    ),
+                    use_container_width=True,
                 )
-                st.altair_chart(g_chart, use_container_width=True)
 
         st.divider()
-        st.subheader("➕ Manual Entry (Current or Backdated)")
-        with st.form("metric_form", clear_on_submit=True):
+        # --- RE-ADDED MANUAL INPUTS (Ensuring no loss of functionality) ---
+        st.subheader("➕ Add Health Record")
+        with st.form("metric_form_fixed", clear_on_submit=True):
             f1, f2 = st.columns(2)
             log_date = f1.date_input("Date", datetime.now())
             log_time = f2.time_input("Time", datetime.now())
 
             c1, c2, c3, c4 = st.columns(4)
-            wt = c1.number_input("Weight (lbs)", 0.0, 500.0, 0.0)
+            wt = c1.number_input("Weight", 0.0, 500.0, 0.0)
             sys = c2.number_input("Systolic", 0, 250, 0)
             dia = c3.number_input("Diastolic", 0, 250, 0)
             gl = c4.number_input("Glucose", 0, 500, 0)
@@ -309,8 +327,9 @@ with tab2:
                     payload["blood_glucose"] = gl
                 supabase.table("health_metrics").insert(payload).execute()
                 st.rerun()
+
     except Exception as e:
-        st.error(f"Health Error: {e}")
+        st.error(f"Visualization Error: {e}")
 
 # --- TAB 3: ACTIVITY ---
 with tab3:
