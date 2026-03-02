@@ -2,10 +2,10 @@ import streamlit as st
 from supabase import create_client
 from datetime import datetime
 import pandas as pd
-import altair as alt
+import alt
 import io
 
-# 1. Connection
+# 1. Setup
 url, key = st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"]
 supabase = create_client(url, key)
 
@@ -23,9 +23,9 @@ if "edit_data" not in st.session_state:
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 if not st.session_state.authenticated:
-    st.title("🔒 Private Health Cloud")
+    st.title("🔒 Access Control")
     with st.form("login"):
-        pwd = st.text_input("Access Code", type="password")
+        pwd = st.text_input("Enter Code", type="password")
         if st.form_submit_button("Login"):
             if pwd == st.secrets["ADMIN_PASSWORD"]:
                 st.session_state.update({"authenticated": True, "is_admin": True})
@@ -39,7 +39,8 @@ active_user = (
     "admin"
     if (
         st.session_state.is_admin
-        and st.sidebar.radio("View", ["Admin", "Guest"]) == "Admin"
+        and st.sidebar.radio("🔎 View Mode", ["Admin Data", "Guest Data"])
+        == "Admin Data"
     )
     else "guest"
 )
@@ -49,8 +50,9 @@ tab1, tab2, tab3, tab4 = st.tabs(
     ["🍴 Nutrition", "🩺 Health Metrics", "🏃 Activity", "📊 Reports"]
 )
 
-# --- TAB 1: NUTRITION ---
+# --- TAB 1: NUTRITION (Manual Entry Restored) ---
 with tab1:
+    # A. Metrics UI
     try:
         dv = (
             supabase.table("daily_variance")
@@ -63,7 +65,6 @@ with tab1:
         )
         if dv:
             d = dv[0]
-            st.subheader(f"Nutrition Snapshot: {d['date']}")
             c1, c2, c3, c4, c5 = st.columns(5)
             c1.metric(
                 "Calories",
@@ -73,7 +74,7 @@ with tab1:
             c2.metric(
                 "Protein",
                 f"{int(d['total_protein'] or 0)}g",
-                f"{int((d['total_protein'] or 0) - 160)}g vs Goal",
+                f"{int((d['total_protein'] or 0) - 160)}g",
             )
             c3.metric(
                 "Net Carbs",
@@ -89,22 +90,23 @@ with tab1:
             c5.metric(
                 "Fiber",
                 f"{int(d['total_fiber'] or 0)}g",
-                f"{int((d['total_fiber'] or 0) - 30)}g vs Min",
+                f"{int((d['total_fiber'] or 0) - 30)}g Min",
             )
     except:
-        st.info("Welcome! Start logging below.")
+        st.info("Ready for logs.")
 
     st.divider()
+    # B. Quick Log
     st.markdown("### ⚡ Quick Log")
-    freq_data = (
+    freq = (
         supabase.table("daily_logs")
         .select("foods(food_name, food_id)")
         .eq("user_id", active_user)
         .execute()
         .data
     )
-    if freq_data:
-        names = [x["foods"]["food_name"] for x in freq_data if x.get("foods")]
+    if freq:
+        names = [x["foods"]["food_name"] for x in freq if x.get("foods")]
         if names:
             tops = pd.Series(names).value_counts().head(5).index.tolist()
             cols = st.columns(len(tops))
@@ -123,56 +125,94 @@ with tab1:
                             "servings": 1.0,
                             "log_date": str(datetime.now().date()),
                             "user_id": record_owner,
-                            "meal_name": "Quick Log",
                         }
                     ).execute()
                     st.rerun()
 
     st.divider()
-    st.markdown("### 📝 Food Entry")
+    # C. Manual Entry & Macro Control
+    st.markdown("### 📝 Add Food Entry")
     ed_n = st.session_state.edit_data if st.session_state.edit_mode == "nutr" else {}
-    f_all = supabase.table("foods").select("*").order("food_name").execute().data
-    if f_all:
-        f_map = {x["food_name"]: x for x in f_all}
-        with st.form("nutrition_form"):
-            col1, col2 = st.columns(2)
-            sel_f = col1.selectbox(
-                "Food Item",
+    entry_type = st.radio(
+        "Entry Method", ["Library Search", "Manual Macro Entry"], horizontal=True
+    )
+
+    with st.form("nutrition_form"):
+        if entry_type == "Library Search":
+            f_data = (
+                supabase.table("foods").select("*").order("food_name").execute().data
+            )
+            f_map = {x["food_name"]: x for x in f_data}
+            sel = st.selectbox(
+                "Select Food",
                 options=list(f_map.keys()),
                 index=list(f_map.keys()).index(ed_n.get("food_name"))
                 if ed_n.get("food_name") in f_map
                 else 0,
             )
-            meal = col2.text_input(
-                "Meal Name (e.g. Breakfast)", value=ed_n.get("meal_name", "")
-            )
-            srv_f = st.number_input(
+            srv = st.number_input(
                 "Servings", 0.1, 10.0, float(ed_n.get("servings", 1.0))
             )
+        else:
+            m_name = st.text_input("Item Name", value=ed_n.get("food_name", ""))
+            mc1, mc2, mc3, mc4 = st.columns(4)
+            m_cal = mc1.number_input("Calories", 0, 2000, 0)
+            m_pro = mc2.number_input("Protein (g)", 0, 200, 0)
+            m_crb = mc3.number_input("Net Carbs (g)", 0, 200, 0)
+            m_fat = mc4.number_input("Fat (g)", 0, 200, 0)
 
-            if st.form_submit_button("Update Entry" if ed_n else "Log Entry"):
-                payload = {
-                    "food_id": f_map[sel_f]["food_id"],
-                    "servings": srv_f,
+        m_label = st.text_input(
+            "Meal Name (Breakfast, Lunch, etc.)", value=ed_n.get("meal_name", "")
+        )
+
+        if st.form_submit_button("Save Entry"):
+            if entry_type == "Library Search":
+                p = {
+                    "food_id": f_map[sel]["food_id"],
+                    "servings": srv,
                     "log_date": str(datetime.now().date()),
                     "user_id": record_owner,
-                    "meal_name": meal,
+                    "meal_name": m_label,
                 }
-                if ed_n:
-                    supabase.table("daily_logs").update(payload).eq(
-                        "log_id", ed_n["log_id"]
-                    ).execute()
-                else:
-                    supabase.table("daily_logs").insert(payload).execute()
-                st.session_state.update({"edit_mode": None, "edit_data": {}})
-                st.rerun()
-        if ed_n and st.button("Cancel Food Edit"):
+            else:
+                # Add to foods table first then log
+                new_f = (
+                    supabase.table("foods")
+                    .insert(
+                        {
+                            "food_name": m_name,
+                            "calories": m_cal,
+                            "protein_g": m_pro,
+                            "carbs_g": m_crb,
+                            "fat_g": m_fat,
+                            "is_custom": True,
+                        }
+                    )
+                    .execute()
+                )
+                new_id = new_f.data[0]["food_id"]
+                p = {
+                    "food_id": new_id,
+                    "servings": 1.0,
+                    "log_date": str(datetime.now().date()),
+                    "user_id": record_owner,
+                    "meal_name": m_label,
+                }
+
+            if ed_n:
+                supabase.table("daily_logs").update(p).eq(
+                    "log_id", ed_n["log_id"]
+                ).execute()
+            else:
+                supabase.table("daily_logs").insert(p).execute()
             st.session_state.update({"edit_mode": None, "edit_data": {}})
             st.rerun()
 
+    # D. Daily History
+    st.subheader("Today's Log")
     logs = (
         supabase.table("daily_logs")
-        .select("*, foods(food_name, calories)")
+        .select("*, foods(*)")
         .eq("log_date", str(datetime.now().date()))
         .eq("user_id", active_user)
         .execute()
@@ -194,37 +234,37 @@ with tab1:
             supabase.table("daily_logs").delete().eq("log_id", r["log_id"]).execute()
             st.rerun()
 
-# --- TAB 2: HEALTH METRICS ---
+# --- TAB 2: HEALTH METRICS (Full Inputs + Trends) ---
 with tab2:
-    st.subheader("🩺 Clinical Data")
+    st.subheader("🩺 Health Data Entry")
     ed_h = st.session_state.edit_data if st.session_state.edit_mode == "health" else {}
     with st.form("health_form"):
         c1, c2, c3 = st.columns(3)
-        weight = c1.number_input(
-            "Weight (lb)", 0.0, 500.0, float(ed_h.get("weight_lb", 0.0))
+        w_lb = c1.number_input(
+            "Weight (lbs)", 0.0, 500.0, float(ed_h.get("weight_lb", 0.0))
         )
         sys = c2.number_input(
-            "Systolic", 0, 250, int(ed_h.get("blood_pressure_systolic", 0))
+            "Systolic BP", 0, 250, int(ed_h.get("blood_pressure_systolic", 0))
         )
         dia = c3.number_input(
-            "Diastolic", 0, 150, int(ed_h.get("blood_pressure_diastolic", 0))
+            "Diastolic BP", 0, 150, int(ed_h.get("blood_pressure_diastolic", 0))
         )
 
         c4, c5 = st.columns(2)
-        glucose = c4.number_input(
-            "Blood Glucose", 0.0, 500.0, float(ed_h.get("blood_glucose", 0.0))
+        glu = c4.number_input(
+            "Glucose (mg/dL)", 0.0, 500.0, float(ed_h.get("blood_glucose", 0.0))
         )
-        notes_h = c5.text_input("Notes", value=ed_h.get("notes", ""))
+        nts = c5.text_input("Notes", value=ed_h.get("notes", ""))
 
-        if st.form_submit_button("Save Health Record"):
+        if st.form_submit_button("Save Health Metrics"):
             payload = {
                 "date": str(datetime.now().date()),
                 "time": datetime.now().strftime("%H:%M:%S"),
-                "weight_lb": weight,
+                "weight_lb": w_lb,
                 "blood_pressure_systolic": sys,
                 "blood_pressure_diastolic": dia,
-                "blood_glucose": glucose,
-                "notes": notes_h,
+                "blood_glucose": glu,
+                "notes": nts,
                 "user_id": record_owner,
             }
             if ed_h:
@@ -235,9 +275,6 @@ with tab2:
                 supabase.table("health_metrics").insert(payload).execute()
             st.session_state.update({"edit_mode": None, "edit_data": {}})
             st.rerun()
-    if ed_h and st.button("Cancel Health Edit"):
-        st.session_state.update({"edit_mode": None, "edit_data": {}})
-        st.rerun()
 
     st.divider()
     h_data = (
@@ -253,93 +290,93 @@ with tab2:
         df_h["ts"] = pd.to_datetime(
             df_h["date"].astype(str) + " " + df_h["time"].fillna("00:00:00").astype(str)
         )
-
-        # RESTORED CHART: Blood Pressure + Glucose dual lines
+        # Triple Chart Trend
         st.subheader("📊 Health Trends")
-        chart_bp = (
-            alt.Chart(df_h)
-            .transform_fold(
-                ["blood_pressure_systolic", "blood_pressure_diastolic"],
-                as_=["Metric", "Value"],
-            )
-            .encode(
-                x="ts:T",
-                y=alt.Y("Value:Q", scale=alt.Scale(zero=False), title="Blood Pressure"),
-                color="Metric:N",
-            )
+        base = alt.Chart(df_h).encode(x="ts:T")
+        bp = (
+            base.transform_fold(["blood_pressure_systolic", "blood_pressure_diastolic"])
             .mark_line(point=True)
-            .properties(height=250)
+            .encode(y="value:Q", color="key:N")
+            .properties(height=200, title="Blood Pressure")
         )
-
-        chart_glucose = (
-            alt.Chart(df_h)
-            .encode(
-                x="ts:T",
-                y=alt.Y(
-                    "blood_glucose:Q", scale=alt.Scale(zero=False), title="Glucose"
-                ),
-                color=alt.value("#FFA500"),
-            )
-            .mark_line(point=True)
-            .properties(height=150)
+        weight_c = (
+            base.mark_line(color="green", point=True)
+            .encode(y=alt.Y("weight_lb:Q", scale=alt.Scale(zero=False)))
+            .properties(height=150, title="Weight Trend")
         )
+        glu_c = (
+            base.mark_line(color="orange", point=True)
+            .encode(y="blood_glucose:Q")
+            .properties(height=150, title="Glucose Trend")
+        )
+        st.altair_chart(alt.vconcat(bp, weight_c, glu_c), use_container_width=True)
 
-        st.altair_chart(chart_bp & chart_glucose, use_container_width=True)
-
-# --- TAB 3: ACTIVITY ---
+# --- TAB 3: ACTIVITY (Conditional UI Restored) ---
 with tab3:
-    st.subheader("🏃 Training Log")
+    st.subheader("🏃 Activity Tracking")
     ed_a = st.session_state.edit_data if st.session_state.edit_mode == "act" else {}
-
-    # RESTORED: Category Radio Buttons
-    cat_list = ["Strength", "Cardio", "Endurance"]
-    cat_idx = cat_list.index(ed_a.get("activity_category", "Strength"))
-    cat_a = st.radio("Activity Category", cat_list, index=cat_idx, horizontal=True)
+    a_cat = st.radio(
+        "Select Type",
+        ["Strength", "Cardio", "Endurance"],
+        horizontal=True,
+        index=["Strength", "Cardio", "Endurance"].index(
+            ed_a.get("activity_category", "Strength")
+        ),
+    )
 
     with st.form("activity_form"):
-        name_a = st.text_input("Exercise Name", value=ed_a.get("exercise_name", ""))
-        c1, c2, c3, c4, c5 = st.columns(5)
-        sets = c1.number_input("Sets", 0, 50, int(ed_a.get("sets", 0)))
-        reps = c2.number_input("Reps", 0, 1000, int(ed_a.get("reps", 0)))
-        lbs = c3.number_input("Weight (lb)", 0, 1000, int(ed_a.get("weight_lb", 0)))
-        mins = c4.number_input(
-            "Duration (min)", 0, 1440, int(ed_a.get("duration_min", 0))
-        )
-        miles = c5.number_input(
-            "Distance (mi)", 0.0, 100.0, float(ed_a.get("distance_miles", 0.0))
-        )
+        a_name = st.text_input("Exercise Name", value=ed_a.get("exercise_name", ""))
+        c1, c2, c3 = st.columns(3)
 
-        if st.form_submit_button("Update Activity" if ed_a else "Save Activity"):
-            payload = {
+        if a_cat == "Strength":
+            sets = c1.number_input("Sets", 0, 20, int(ed_a.get("sets", 0)))
+            reps = c2.number_input("Reps", 0, 50, int(ed_a.get("reps", 0)))
+            lbs = c3.number_input(
+                "Weight (lbs)", 0, 1000, int(ed_a.get("weight_lb", 0))
+            )
+            dur, dist = 0, 0.0
+        elif a_cat == "Cardio":
+            dur = c1.number_input(
+                "Duration (min)", 0, 300, int(ed_a.get("duration_min", 0))
+            )
+            dist = c2.number_input(
+                "Distance (miles)", 0.0, 100.0, float(ed_a.get("distance_miles", 0.0))
+            )
+            sets, reps, lbs = 0, 0, 0
+        else:  # Endurance
+            dur = c1.number_input(
+                "Duration (min)", 0, 300, int(ed_a.get("duration_min", 0))
+            )
+            sets = c2.number_input("Sets", 0, 20, int(ed_a.get("sets", 0)))
+            reps = c3.number_input("Reps", 0, 100, int(ed_a.get("reps", 0)))
+            dist, lbs = 0.0, 0
+
+        if st.form_submit_button("Log Activity"):
+            p = {
                 "log_date": str(datetime.now().date()),
-                "exercise_name": name_a,
-                "activity_category": cat_a,
+                "exercise_name": a_name,
+                "activity_category": a_cat,
                 "sets": sets,
                 "reps": reps,
                 "weight_lb": lbs,
-                "duration_min": mins,
-                "distance_miles": miles,
+                "duration_min": dur,
+                "distance_miles": dist,
                 "user_id": record_owner,
             }
             if ed_a:
-                supabase.table("activity_logs").update(payload).eq(
-                    "id", ed_a["id"]
-                ).execute()
+                supabase.table("activity_logs").update(p).eq("id", ed_a["id"]).execute()
             else:
-                supabase.table("activity_logs").insert(payload).execute()
+                supabase.table("activity_logs").insert(p).execute()
             st.session_state.update({"edit_mode": None, "edit_data": {}})
             st.rerun()
-    if ed_a and st.button("Cancel Activity Edit"):
-        st.session_state.update({"edit_mode": None, "edit_data": {}})
-        st.rerun()
 
-    st.divider()
+    # Recent Activity with Delete
     a_logs = (
         supabase.table("activity_logs")
         .select("*")
         .eq("user_id", active_user)
         .order("log_date", desc=True)
-        .limit(10)
+        .limit(5)
         .execute()
         .data
     )
@@ -355,42 +392,35 @@ with tab3:
             supabase.table("activity_logs").delete().eq("id", ra["id"]).execute()
             st.rerun()
 
-# --- TAB 4: REPORTS & MASTER EXPORT ---
+# --- TAB 4: REPORTS (Full Master Export Restored) ---
 with tab4:
-    st.subheader("📊 Data & Export Central")
+    st.subheader("📊 Master Data Export")
+    tables = [
+        "daily_logs",
+        "health_metrics",
+        "activity_logs",
+        "foods",
+        "daily_variance",
+    ]
+    selected_tbl = st.selectbox("Select Table to Preview & Export", tables)
 
-    # RESTORED: Master Export Feature
-    col_exp1, col_exp2 = st.columns([1, 2])
-    with col_exp1:
-        st.markdown("### Export all data")
-        export_target = st.selectbox(
-            "Select Table",
-            [
-                "daily_logs",
-                "health_metrics",
-                "activity_logs",
-                "foods",
-                "daily_variance",
-            ],
+    # Logic to fetch based on table type
+    q = supabase.table(selected_tbl).select("*")
+    if selected_tbl not in ["foods", "daily_variance"]:
+        q = q.eq("user_id", active_user)
+
+    data = q.execute().data
+    if data:
+        df = pd.DataFrame(data)
+        st.dataframe(df, use_container_width=True)
+
+        # Proper CSV Export
+        csv = df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label=f"📥 Download {selected_tbl}.csv",
+            data=csv,
+            file_name=f"{selected_tbl}_full.csv",
+            mime="text/csv",
         )
-
-    query = supabase.table(export_target).select("*")
-    if export_target not in ["foods", "daily_variance"]:
-        query = query.eq("user_id", active_user)
-
-    export_data = query.execute().data
-    if export_data:
-        df_exp = pd.DataFrame(export_data)
-        with col_exp2:
-            st.write(f"Total records in {export_target}: {len(df_exp)}")
-            csv = df_exp.to_csv(index=False).encode("utf-8")
-            st.download_button(
-                label=f"📥 Download {export_target}.csv",
-                data=csv,
-                file_name=f"{export_target}_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv",
-                key="master_download_btn",
-            )
-        st.dataframe(df_exp.head(50), use_container_width=True)
     else:
-        st.warning("No data found for this selection.")
+        st.warning("No data found.")
