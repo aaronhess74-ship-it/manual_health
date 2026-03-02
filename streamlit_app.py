@@ -64,9 +64,10 @@ tab1, tab2, tab3, tab4 = st.tabs(
     ["🍴 Nutrition", "🩺 Health Metrics", "🏃 Activity", "📊 Reports"]
 )
 
-# --- TAB 1: NUTRITION ---
+# --- TAB 1: NUTRITION (FULLY RESTORED + EDIT & UNIQUE KEYS) ---
 with tab1:
     try:
+        # 1. Daily Status Metrics
         response = (
             supabase.table("daily_variance")
             .select("*")
@@ -112,27 +113,69 @@ with tab1:
         st.error(f"Nutrition Load Error: {e}")
 
     st.divider()
+
+    # Session State for Editing Nutrition Log
+    edit_log_id = st.session_state.get("editing_log_id", None)
+    edit_log_vals = st.session_state.get("editing_log_vals", {})
+
     col_a, col_b = st.columns(2)
+
+    # 2. Library Search / Edit Form
     with col_a:
-        st.markdown("### 🔎 Library Search")
+        st.markdown(
+            "### 🔎 Library Search" if not edit_log_id else "### ✏️ Edit Log Entry"
+        )
         f_query = supabase.table("foods").select("*").order("food_name").execute()
         if f_query.data:
             f_dict = {f["food_name"]: f for f in f_query.data}
-            sel = st.selectbox("Select Item", options=list(f_dict.keys()), index=None)
+
+            # If editing, find the current food name
+            cur_food = (
+                edit_log_vals.get("foods", {}).get("food_name") if edit_log_id else None
+            )
+            sel = st.selectbox(
+                "Select Item",
+                options=list(f_dict.keys()),
+                index=list(f_dict.keys()).index(cur_food)
+                if cur_food in f_dict
+                else None,
+            )
+
             if sel:
-                srv = st.number_input("Servings", 0.1, 10.0, 1.0, step=0.1)
-                if st.button("Log Food Entry"):
+                # If editing, use existing servings as default
+                def_srv = (
+                    float(edit_log_vals.get("servings", 1.0)) if edit_log_id else 1.0
+                )
+                srv = st.number_input("Servings", 0.1, 10.0, def_srv, step=0.1)
+
+                btn_label = "Update Log Entry" if edit_log_id else "Log Food Entry"
+                if st.button(btn_label):
                     f_id = f_dict[sel].get("food_id") or f_dict[sel].get("id")
-                    supabase.table("daily_logs").insert(
-                        {
-                            "food_id": f_id,
-                            "servings": srv,
-                            "log_date": str(datetime.now().date()),
-                            "user_id": record_owner,
-                        }
-                    ).execute()
+                    payload = {
+                        "food_id": f_id,
+                        "servings": srv,
+                        "log_date": edit_log_vals.get(
+                            "log_date", str(datetime.now().date())
+                        ),
+                        "user_id": record_owner,
+                    }
+                    if edit_log_id:
+                        supabase.table("daily_logs").update(payload).eq(
+                            "log_id", edit_log_id
+                        ).execute()
+                        st.session_state.editing_log_id = None
+                        st.session_state.editing_log_vals = {}
+                    else:
+                        supabase.table("daily_logs").insert(payload).execute()
                     st.rerun()
 
+                if edit_log_id:
+                    if st.button("Cancel Edit"):
+                        st.session_state.editing_log_id = None
+                        st.session_state.editing_log_vals = {}
+                        st.rerun()
+
+    # 3. Admin: Create Food (Preserved)
     with col_b:
         if st.session_state.is_admin:
             st.markdown("### ➕ Admin: Create Food")
@@ -167,6 +210,7 @@ with tab1:
                         ).execute()
                         st.rerun()
 
+    # 4. History List (Unique Keys + Edit Button)
     st.subheader("🗑️ Today's Logged Items")
     log_res = (
         supabase.table("daily_logs")
@@ -176,13 +220,22 @@ with tab1:
         .execute()
     )
     if log_res.data:
-        for r in log_res.data:
-            lc1, lc2, lc3 = st.columns([3, 1, 1])
+        for idx, r in enumerate(log_res.data):
+            lc1, lc2, lc3, lc4 = st.columns([3, 1, 0.5, 0.5])
             f_info = r.get("foods") or {}
             lc1.write(f"**{f_info.get('food_name', 'Unknown')}**")
             lc2.write(f"{int(f_info.get('calories', 0) * r.get('servings', 1))} kcal")
-            l_id = r.get("log_id") or r.get("id")
-            if lc3.button("🗑️", key=f"del_log_{l_id}"):
+
+            l_id = r.get("log_id") or r.get("id") or idx
+
+            # Edit Button (idx added to key to prevent Streamlit error)
+            if lc3.button("✏️", key=f"ed_log_{l_id}_{idx}"):
+                st.session_state.editing_log_id = l_id
+                st.session_state.editing_log_vals = r
+                st.rerun()
+
+            # Delete Button (idx added to key to prevent Streamlit error)
+            if lc4.button("🗑️", key=f"del_log_{l_id}_{idx}"):
                 col_n = "log_id" if "log_id" in r else "id"
                 supabase.table("daily_logs").delete().eq(col_n, l_id).execute()
                 st.rerun()
