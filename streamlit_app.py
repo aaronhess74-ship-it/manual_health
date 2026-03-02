@@ -9,338 +9,452 @@ url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase = create_client(url, key)
 
-st.set_page_config(
-    page_title="Health Dashboard Pro", layout="wide", initial_sidebar_state="collapsed"
-)
+st.set_page_config(page_title="Health Dashboard Pro", layout="wide")
+st.title("💪 My Health Dashboard")
 
+# --- TARGET CONSTANTS ---
+TARGET_CALORIES = 1800
+TARGET_PROTEIN = 160
+TARGET_FAT_MAX = 60
+TARGET_NET_CARBS = 60
+TARGET_FIBER_MIN = 30
+TARGET_WEIGHT = 180
+TARGET_GLUCOSE = 100
+TARGET_BP_SYS = 130
 
-# --- ACCESS CONTROL ---
-def check_password():
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
-        st.session_state.is_admin = False
-
-    if not st.session_state.authenticated:
-        st.title("🔒 Dashboard Access")
-        col1, _ = st.columns([1, 1])
-        with col1:
-            with st.form("login_form"):
-                pwd = st.text_input("Enter Access Code", type="password")
-                if st.form_submit_button("Login"):
-                    if pwd == st.secrets["ADMIN_PASSWORD"]:
-                        st.session_state.authenticated = True
-                        st.session_state.is_admin = True
-                        st.rerun()
-                    elif pwd == st.secrets.get("GUEST_PASSWORD"):
-                        st.session_state.authenticated = True
-                        st.session_state.is_admin = False
-                        st.rerun()
-                    else:
-                        st.error("Invalid Code")
-        return False
-    return True
-
-
-if not check_password():
-    st.stop()
-
-# --- DATA SCOPING ---
-if st.session_state.is_admin:
-    view_mode = st.sidebar.radio(
-        "🔎 View Mode", ["My Data (Admin)", "Tester Data (Guest)"]
-    )
-    active_user = "admin" if "Admin" in view_mode else "guest"
-else:
-    active_user = "guest"
-
-record_owner = "admin" if st.session_state.is_admin else "guest"
-
-# --- TARGETS ---
-TARGET_CALORIES, TARGET_PROTEIN = 1800, 160
-TARGET_FAT_MAX, TARGET_FIBER_MIN = 60, 30
-NC_LIMIT = 100
+# Colors for Trends
+C_RED, C_YELLOW, C_GREEN, C_GRAY = "#e74c3c", "#f1c40f", "#2ecc71", "#bdc3c7"
 
 tab1, tab2, tab3, tab4 = st.tabs(
-    ["🍴 Nutrition", "🩺 Health Metrics", "🏃 Activity", "📊 Reports"]
+    ["🍴 Nutrition", "🩺 Health Metrics", "🏃 Activity", "📊 Reports & Exports"]
 )
 
 # --- TAB 1: NUTRITION ---
 with tab1:
     try:
+        # Pulling from daily_variance view/table
         response = (
             supabase.table("daily_variance")
             .select("*")
-            .eq("user_id", active_user)
-            .order("date", desc=True)
+            .order("log_date", desc=True)
             .limit(1)
             .execute()
         )
         if response.data:
             latest = response.data[0]
-            st.subheader(f"Daily Status: {latest.get('date')} ({active_user.upper()})")
+            st.subheader(f"Status for {latest.get('log_date', 'Today')}")
             c1, c2, c3, c4, c5 = st.columns(5)
 
-            cals = float(latest.get("total_calories") or 0)
-            prot = float(latest.get("total_protein") or 0)
-            net_c = float(latest.get("total_net_carbs") or 0)
-            fat = float(latest.get("total_fat") or 0)
-            fib = float(latest.get("total_fiber") or 0)
+            cals = float(latest.get("total_calories", 0) or 0)
+            prot = float(latest.get("total_protein", 0) or 0)
+            net_c = float(latest.get("total_net_carbs", 0) or 0)
+            fat = float(latest.get("total_fat", 0) or 0)
+            fib = float(latest.get("total_fiber", 0) or 0)
 
-            nc_dot = "🟢" if net_c <= NC_LIMIT else "🔴"
-            fat_dot = "🟢" if fat <= TARGET_FAT_MAX else "🔴"
-            fib_dot = "🟢" if fib >= TARGET_FIBER_MIN else "🔴"
+            def get_status_icon(curr, target, is_ceiling=True):
+                if is_ceiling:
+                    if curr > target:
+                        return "🔴 OVER"
+                    if curr >= (target * 0.90):
+                        return "🟡 NEAR"
+                    return "🟢 OK"
+                else:
+                    if curr >= target:
+                        return "🟢 GOAL"
+                    if curr >= (target * 0.90):
+                        return "🟡 LOW"
+                    return "🔴 URGENT"
 
-            c1.metric("Calories", f"{int(cals)}", f"{int(TARGET_CALORIES - cals)} Left")
+            c1.metric(
+                f"Calories {get_status_icon(cals, TARGET_CALORIES)}",
+                f"{int(cals)}",
+                f"{int(TARGET_CALORIES - cals)} Left",
+            )
             c2.metric(
-                "Protein", f"{int(prot)}g", f"{int(prot - TARGET_PROTEIN)}g vs Goal"
+                f"Protein {get_status_icon(prot, TARGET_PROTEIN, False)}",
+                f"{int(prot)}g",
+                f"{int(prot - TARGET_PROTEIN)} vs Target",
             )
             c3.metric(
-                f"Net Carbs {nc_dot}",
+                f"Net Carbs {get_status_icon(net_c, TARGET_NET_CARBS)}",
                 f"{int(net_c)}g",
-                f"{int(net_c - NC_LIMIT)}g Over",
-                delta_color="inverse",
+                f"{int(TARGET_NET_CARBS - net_c)} Left",
             )
             c4.metric(
-                f"Fat {fat_dot}", f"{int(fat)}g", f"{int(TARGET_FAT_MAX - fat)}g Left"
+                f"Total Fat {get_status_icon(fat, TARGET_FAT_MAX)}",
+                f"{int(fat)}g",
+                f"{int(TARGET_FAT_MAX - fat)} Left",
             )
             c5.metric(
-                f"Fiber {fib_dot}",
+                f"Fiber {get_status_icon(fib, TARGET_FIBER_MIN, False)}",
                 f"{int(fib)}g",
-                f"{int(fib - TARGET_FIBER_MIN)}g vs Min",
+                f"{int(fib - TARGET_FIBER_MIN)} vs Target",
             )
     except Exception as e:
-        st.error(f"Nutrition Load Error: {e}")
+        st.error(f"Daily summary error: {e}")
+
+    st.divider()
+    st.subheader("⚡ Quick Log")
+    try:
+        recent_res = (
+            supabase.table("daily_logs")
+            .select("food_id, foods(food_name)")
+            .order("log_id", desc=True)
+            .limit(30)
+            .execute()
+        )
+        if recent_res.data:
+            seen = set()
+            quick_foods = []
+            for r in recent_res.data:
+                if r["foods"] and r["food_id"] not in seen:
+                    quick_foods.append(
+                        {"id": r["food_id"], "name": r["foods"]["food_name"]}
+                    )
+                    seen.add(r["food_id"])
+                if len(quick_foods) >= 5:
+                    break
+            if quick_foods:
+                cols = st.columns(len(quick_foods))
+                for i, f in enumerate(quick_foods):
+                    if cols[i].button(f"➕ {f['name']}", key=f"q_{f['id']}"):
+                        supabase.table("daily_logs").insert(
+                            {
+                                "food_id": f["id"],
+                                "servings": 1.0,
+                                "log_date": str(datetime.now().date()),
+                            }
+                        ).execute()
+                        st.rerun()
+    except:
+        pass
 
     st.divider()
     col_a, col_b = st.columns(2)
     with col_a:
-        st.markdown("### 🔎 Library Search")
+        st.subheader("🍴 Log Existing")
         f_query = supabase.table("foods").select("*").order("food_name").execute()
         if f_query.data:
             f_dict = {f["food_name"]: f for f in f_query.data}
-            sel = st.selectbox("Select Item", options=list(f_dict.keys()), index=None)
+            sel = st.selectbox(
+                "Search Food Library...", options=list(f_dict.keys()), index=None
+            )
             if sel:
-                srv = st.number_input("Servings", 0.1, 10.0, 1.0, step=0.1)
-                if st.button("Log Food Entry"):
-                    f_id = f_dict[sel].get("food_id") or f_dict[sel].get("id")
+                food = f_dict[sel]
+                srv = st.number_input("Servings", min_value=0.0, value=1.0, step=0.1)
+                if st.button("Log Meal"):
                     supabase.table("daily_logs").insert(
                         {
-                            "food_id": f_id,
+                            "food_id": food["food_id"],
                             "servings": srv,
                             "log_date": str(datetime.now().date()),
-                            "user_id": record_owner,
                         }
                     ).execute()
                     st.rerun()
 
     with col_b:
-        if st.session_state.is_admin:
-            st.markdown("### ➕ Admin: Create Food")
-            with st.form("add_food_form", clear_on_submit=True):
-                fn = st.text_input("New Food Name")
-                f_c1, f_c2, f_c3 = st.columns(3)
-                v_ca = f_c1.number_input("Cals", 0)
-                v_pr = f_c2.number_input("Prot", 0)
-                v_nc = f_c3.number_input("NetC", 0)
-                if st.form_submit_button("Create & Log Item"):
+        st.subheader("🆕 New Food")
+        with st.form("new_f", clear_on_submit=True):
+            n_name = st.text_input("Name")
+            c_c, c_p, c_cb = st.columns(3)
+            nc = c_c.number_input("Cal", 0)
+            np = c_p.number_input("Prot", 0)
+            ncb = c_cb.number_input("Carb", 0)
+            nf = st.number_input("Fat", 0)
+            nfi = st.number_input("Fib", 0)
+            if st.form_submit_button("Save & Log"):
+                if n_name:
                     res = (
                         supabase.table("foods")
                         .insert(
                             {
-                                "food_name": fn,
-                                "calories": v_ca,
-                                "protein_g": v_pr,
-                                "net_carbs_g": v_nc,
+                                "food_name": n_name,
+                                "calories": nc,
+                                "protein_g": np,
+                                "carbs_g": ncb,
+                                "fat_g": nf,
+                                "fiber_g": nfi,
                             }
                         )
                         .execute()
                     )
                     if res.data:
-                        f_id = res.data[0].get("id") or res.data[0].get("food_id")
                         supabase.table("daily_logs").insert(
                             {
-                                "food_id": f_id,
+                                "food_id": res.data[0]["food_id"],
                                 "servings": 1.0,
                                 "log_date": str(datetime.now().date()),
-                                "user_id": record_owner,
                             }
                         ).execute()
                         st.rerun()
 
-    st.subheader("🗑️ Today's Logged Items")
-    log_res = (
+    st.subheader("📜 Today's History")
+    h_res = (
         supabase.table("daily_logs")
-        .select("*, foods(food_name, calories)")
+        .select("log_id, servings, foods(food_name, calories)")
         .eq("log_date", str(datetime.now().date()))
-        .eq("user_id", active_user)
         .execute()
     )
-    if log_res.data:
-        for r in log_res.data:
-            lc1, lc2, lc3 = st.columns([3, 1, 1])
-            f_info = r.get("foods") or {}
-            lc1.write(f"**{f_info.get('food_name', 'Unknown')}**")
-            lc2.write(f"{int(f_info.get('calories', 0) * r.get('servings', 1))} kcal")
-            l_id = r.get("log_id") or r.get("id")
-            if lc3.button("🗑️", key=f"del_log_{l_id}"):
-                col_n = "log_id" if "log_id" in r else "id"
-                supabase.table("daily_logs").delete().eq(col_n, l_id).execute()
+    if h_res.data:
+        for item in h_res.data:
+            hc1, hc2, hc3 = st.columns([3, 1, 1])
+            hc1.write(f"**{item['foods']['food_name']}**")
+            hc2.write(f"{int(item['foods']['calories'] * item['servings'])} cal")
+            if hc3.button("🗑️", key=f"del_{item['log_id']}"):
+                supabase.table("daily_logs").delete().eq(
+                    "log_id", item["log_id"]
+                ).execute()
                 st.rerun()
 
 # --- TAB 2: HEALTH METRICS ---
 with tab2:
     try:
-        h_res = (
+        res = (
             supabase.table("health_metrics")
             .select("*")
-            .eq("user_id", active_user)
-            .order("date", desc=False)
+            .order("log_date", desc=False)
             .execute()
         )
-        df_h = pd.DataFrame(h_res.data) if h_res.data else pd.DataFrame()
+        df_v = pd.DataFrame(res.data) if res.data else pd.DataFrame()
 
-        if not df_h.empty:
-            df_h["ts"] = pd.to_datetime(
-                df_h["date"].astype(str)
+        if not df_v.empty:
+            df_v["ts"] = pd.to_datetime(
+                df_v["log_date"].astype(str)
                 + " "
-                + df_h["time"].fillna("00:00:00").astype(str)
+                + df_v["time"].fillna("00:00:00").astype(str)
             )
-            st.subheader("📊 Health Trends")
-            w_chart = (
-                alt.Chart(df_h.dropna(subset=["weight_lb"]))
-                .mark_line(point=True, color="#3498db")
-                .encode(
-                    x=alt.X("ts:T", title="Timeline"),
-                    y=alt.Y(
-                        "weight_lb:Q", scale=alt.Scale(zero=False), title="Weight (lbs)"
-                    ),
+            df_v["chart_label"] = df_v["ts"].dt.strftime("%b %d | %H:%M")
+
+            st.subheader("📊 Current Status")
+
+            def get_latest(col):
+                valid = df_v.dropna(subset=[col]).sort_values("ts")
+                return valid.iloc[-1] if not valid.empty else None
+
+            l_bp, l_gl, l_wt = (
+                get_latest("blood_pressure_systolic"),
+                get_latest("blood_glucose"),
+                get_latest("weight_lb"),
+            )
+            m1, m2, m3 = st.columns(3)
+            if l_bp is not None:
+                s, d = (
+                    int(l_bp["blood_pressure_systolic"]),
+                    int(l_bp["blood_pressure_diastolic"]),
                 )
-                .properties(height=250)
+                emoji = (
+                    "🟢" if s < 120 and d < 80 else "🟡" if s < 130 and d < 80 else "🔴"
+                )
+                m1.metric("Latest BP", f"{emoji} {s}/{d}")
+            if l_gl is not None:
+                g = int(l_gl["blood_glucose"])
+                emoji = "🟢" if g < 100 else "🟡" if g < 126 else "🔴"
+                m2.metric("Latest Glucose", f"{emoji} {g} mg/dL")
+            if l_wt is not None:
+                m3.metric("Latest Weight", f"⚖️ {l_wt['weight_lb']} lbs")
+
+            st.divider()
+
+            def create_health_chart(data, y_col, color, y_domain, title):
+                chart_df = data.dropna(subset=[y_col]).sort_values("ts")
+                base = alt.Chart(chart_df).encode(
+                    x=alt.X("chart_label:O", title="Entry", sort=None),
+                    tooltip=[
+                        alt.Tooltip("chart_label:N", title="Logged At"),
+                        alt.Tooltip(f"{y_col}:Q", title=title),
+                    ],
+                )
+                line = base.mark_line(color=color, strokeWidth=3).encode(
+                    y=alt.Y(f"{y_col}:Q", scale=alt.Scale(domain=y_domain))
+                )
+                points = base.mark_circle(color=color, size=60).encode(y=f"{y_col}:Q")
+                return (line + points).properties(height=300)
+
+            st.write("**Weight Trend**")
+            st.altair_chart(
+                create_health_chart(df_v, "weight_lb", "#3498db", [150, 300], "Weight"),
+                use_container_width=True,
             )
-            st.altair_chart(w_chart, use_container_width=True)
 
-        st.divider()
-        st.subheader("➕ Manual Entries")
-        m_c1, m_c2, m_c3 = st.columns(3)
-        with m_c1:
-            st.info("⚖️ Weight")
-            wv = st.number_input("Lbs", 0.0, key="w_in")
-            if st.button("Save Weight"):
-                supabase.table("health_metrics").insert(
-                    {
-                        "date": str(datetime.now().date()),
-                        "time": datetime.now().strftime("%H:%M:%S"),
-                        "weight_lb": wv,
-                        "user_id": record_owner,
-                    }
-                ).execute()
-                st.rerun()
-        with m_c2:
-            st.error("❤️ Blood Pressure")
-            bs = st.number_input("Systolic", 0, key="sys_in")
-            bd = st.number_input("Diastolic", 0, key="dia_in")
-            if st.button("Save BP"):
-                supabase.table("health_metrics").insert(
-                    {
-                        "date": str(datetime.now().date()),
-                        "time": datetime.now().strftime("%H:%M:%S"),
-                        "blood_pressure_systolic": bs,
-                        "blood_pressure_diastolic": bd,
-                        "user_id": record_owner,
-                    }
-                ).execute()
-                st.rerun()
-        with m_c3:
-            st.success("🩸 Glucose")
-            gv = st.number_input("mg/dL", 0, key="glu_in")
-            if st.button("Save Glucose"):
-                supabase.table("health_metrics").insert(
-                    {
-                        "date": str(datetime.now().date()),
-                        "time": datetime.now().strftime("%H:%M:%S"),
-                        "blood_glucose": gv,
-                        "user_id": record_owner,
-                    }
-                ).execute()
-                st.rerun()
+        st.subheader("➕ Log New Measurement")
+        c_bp, c_wt, c_gl = st.columns(3)
+        now = datetime.now()
 
-        st.divider()
-        st.subheader("📜 Recent Health History")
-        hist_res = (
-            supabase.table("health_metrics")
-            .select("*")
-            .eq("user_id", active_user)
-            .order("date", desc=True)
-            .limit(10)
-            .execute()
-        )
-        if hist_res.data:
-            for r in hist_res.data:
-                hc1, hc2, hc3 = st.columns([4, 1, 1])
-                parts = []
-                if r.get("weight_lb"):
-                    parts.append(f"W: {r['weight_lb']}lbs")
-                if r.get("blood_pressure_systolic"):
-                    parts.append(
-                        f"BP: {r['blood_pressure_systolic']}/{r['blood_pressure_diastolic']}"
-                    )
-                if r.get("blood_glucose"):
-                    parts.append(f"G: {r['blood_glucose']}mg/dL")
-                hc1.write(f"**{r.get('date')}** | {', '.join(parts)}")
-                h_id = r.get("metric_id") or r.get("id")
-                if hc3.button("🗑️", key=f"del_h_{h_id}"):
-                    col_n = "metric_id" if "metric_id" in r else "id"
-                    supabase.table("health_metrics").delete().eq(col_n, h_id).execute()
+        with c_bp:
+            with st.expander("❤️ Blood Pressure"):
+                d_bp = st.date_input("Date", now.date(), key="d_bp")
+                t_bp = st.time_input("Time", now.time(), key="t_bp")
+                sys = st.number_input("Systolic", 0, 300, 120)
+                dia = st.number_input("Diastolic", 0, 200, 80)
+                if st.button("Log BP"):
+                    supabase.table("health_metrics").insert(
+                        {
+                            "log_date": d_bp.isoformat(),
+                            "time": t_bp.strftime("%H:%M:%S"),
+                            "blood_pressure_systolic": sys,
+                            "blood_pressure_diastolic": dia,
+                        }
+                    ).execute()
                     st.rerun()
+
+        with c_wt:
+            with st.expander("⚖️ Weight"):
+                d_wt = st.date_input("Date", now.date(), key="d_wt")
+                t_wt = st.time_input("Time", now.time(), key="t_wt")
+                w_wt = st.number_input("Weight (lbs)", 0.0, 500.0, 180.0)
+                if st.button("Log Weight"):
+                    supabase.table("health_metrics").insert(
+                        {
+                            "log_date": d_wt.isoformat(),
+                            "time": t_wt.strftime("%H:%M:%S"),
+                            "weight_lb": w_wt,
+                        }
+                    ).execute()
+                    st.rerun()
+
+        with c_gl:
+            with st.expander("🩸 Glucose"):
+                d_gl = st.date_input("Date", now.date(), key="d_gl")
+                t_gl = st.time_input("Time", now.time(), key="t_gl")
+                g_gl = st.number_input("Glucose", 0, 500, 100)
+                if st.button("Log Glucose"):
+                    supabase.table("health_metrics").insert(
+                        {
+                            "log_date": d_gl.isoformat(),
+                            "time": t_gl.strftime("%H:%M:%S"),
+                            "blood_glucose": g_gl,
+                        }
+                    ).execute()
+                    st.rerun()
+
     except Exception as e:
-        st.error(f"Health Tab Error: {e}")
+        st.error(f"Health Dashboard error: {e}")
 
 # --- TAB 3: ACTIVITY ---
 with tab3:
-    st.subheader(f"🏃 Workout Log")
-    with st.form("activity_form", clear_on_submit=True):
-        f1, f2 = st.columns(2)
-        ex_name = f1.text_input("Exercise Name")
-        ex_cat = f2.selectbox("Category", ["Strength", "Cardio", "Endurance"])
-        m1, m2, m3, m4 = st.columns(4)
-        v_sets, v_reps, v_weight, v_dist = (
-            m1.number_input("Sets", 0),
-            m2.number_input("Reps", 0),
-            m3.number_input("Weight", 0),
-            m4.number_input("Miles/Mins", 0.0),
-        )
+    st.subheader("🏃 Log Activity")
+    act_cat = st.radio("Category", ["Strength", "Cardio", "Endurance"], horizontal=True)
+    with st.form("act_form", clear_on_submit=True):
+        a_date = st.date_input("Date", datetime.now().date())
+        name = st.text_input("Exercise Name")
+        c1, c2, c3 = st.columns(3)
+        dur, dist, s, r, w = 0.0, 0.0, 0, 0, 0
+        if act_cat == "Strength":
+            s, r, w = (
+                c1.number_input("Sets", 0, 100, 3),
+                c2.number_input("Reps", 0, 100, 10),
+                c3.number_input("Weight (lbs)", 0, 1000, 0),
+            )
+        elif act_cat == "Cardio":
+            dur, dist = (
+                c1.number_input("Duration (min)", 0.0, 500.0, 30.0),
+                c2.number_input("Distance (mi)", 0.0, 100.0, 0.0),
+            )
+        elif act_cat == "Endurance":
+            dur = c1.number_input("Duration (min)", 0.0, 500.0, 30.0)
         if st.form_submit_button("Log Activity"):
-            supabase.table("activity_logs").insert(
-                {
-                    "log_date": str(datetime.now().date()),
-                    "exercise_name": ex_name,
-                    "activity_category": ex_cat,
-                    "sets": v_sets,
-                    "reps": v_reps,
-                    "weight_lb": v_weight,
-                    "distance_miles": v_dist,
-                    "user_id": record_owner,
-                }
-            ).execute()
-            st.rerun()
+            if name:
+                supabase.table("activity_logs").insert(
+                    {
+                        "log_date": str(a_date),
+                        "exercise_name": name,
+                        "activity_category": act_cat,
+                        "duration_min": dur,
+                        "distance_miles": dist,
+                        "sets": s,
+                        "reps": r,
+                        "weight_lbs": w,
+                    }
+                ).execute()
+                st.rerun()
 
-# --- TAB 4: REPORTS ---
+# --- TAB 4: REPORTS & EXPORTS ---
 with tab4:
-    st.subheader("📊 Data Explorer & Master Export")
-    report_tbl = st.selectbox(
-        "Select Data Source", ["health_metrics", "daily_logs", "activity_logs", "foods"]
+    st.subheader("📊 Individual Table Viewer")
+    report_type = st.selectbox(
+        "Select Table", ["Nutrition Variance", "Health Vitals", "Activity Logs"]
     )
-    q = supabase.table(report_tbl).select("*")
-    if report_tbl != "foods":
-        q = q.eq("user_id", active_user)
-    rep_res = q.order("created_at", desc=True).execute()
-    if rep_res.data:
-        df_rep = pd.DataFrame(rep_res.data)
-        st.dataframe(df_rep, use_container_width=True)
-        csv = df_rep.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            label=f"💾 Download {report_tbl.replace('_', ' ').title()} as CSV",
-            data=csv,
-            file_name=f"{active_user}_{report_tbl}.csv",
-            mime="text/csv",
+    t_map = {
+        "Nutrition Variance": "daily_variance",
+        "Health Vitals": "health_metrics",
+        "Activity Logs": "activity_logs",
+    }
+    tbl = t_map[report_type]
+    try:
+        res = (
+            supabase.table(tbl)
+            .select("*")
+            .order("log_date", desc=True)
+            .limit(50)
+            .execute()
         )
+        if res.data:
+            st.dataframe(pd.DataFrame(res.data), use_container_width=True)
+    except Exception as e:
+        st.error(f"Viewer Error: {e}")
+
+    st.divider()
+    st.subheader("📂 Comprehensive Master Export")
+    if st.button("🚀 Prepare Master CSV"):
+        try:
+            l_res = (
+                supabase.table("daily_logs")
+                .select("log_date, foods(food_name, calories)")
+                .execute()
+            )
+            h_res = supabase.table("health_metrics").select("*").execute()
+            a_res = supabase.table("activity_logs").select("*").execute()
+            master = []
+            for i in l_res.data:
+                if i.get("foods"):
+                    master.append(
+                        {
+                            "date": i["log_date"],
+                            "type": "Nutrition",
+                            "metric": i["foods"]["food_name"],
+                            "value": i["foods"]["calories"],
+                            "unit": "kcal",
+                        }
+                    )
+            for i in h_res.data:
+                if i.get("weight_lb"):
+                    master.append(
+                        {
+                            "date": i["log_date"],
+                            "type": "Health",
+                            "metric": "Weight",
+                            "value": i["weight_lb"],
+                            "unit": "lbs",
+                        }
+                    )
+                if i.get("blood_glucose"):
+                    master.append(
+                        {
+                            "date": i["log_date"],
+                            "type": "Health",
+                            "metric": "Glucose",
+                            "value": i["blood_glucose"],
+                            "unit": "mg/dL",
+                        }
+                    )
+            for i in a_res.data:
+                lbl = i.get("exercise_name") or i.get("activity_category") or "Activity"
+                master.append(
+                    {
+                        "date": i.get("log_date"),
+                        "type": "Activity",
+                        "metric": lbl,
+                        "value": i.get("duration_min", 0),
+                        "unit": "min",
+                    }
+                )
+            if master:
+                m_df = pd.DataFrame(master).sort_values(by="date", ascending=False)
+                st.download_button(
+                    "📥 Download Master CSV",
+                    m_df.to_csv(index=False).encode("utf-8"),
+                    "health_master.csv",
+                    "text/csv",
+                )
+        except Exception as e:
+            st.error(f"Export failed: {e}")
