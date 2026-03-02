@@ -1,6 +1,6 @@
 import streamlit as st
 from supabase import create_client
-from datetime import datetime, timedelta
+from datetime import datetime
 import pandas as pd
 import altair as alt
 
@@ -46,7 +46,7 @@ def check_password():
 if not check_password():
     st.stop()
 
-# --- DATA SCOPING & SIDEBAR ---
+# --- DATA SCOPING ---
 if st.session_state.is_admin:
     view_mode = st.sidebar.radio(
         "🔎 View Mode", ["My Data (Admin)", "Tester Data (Guest)"]
@@ -54,7 +54,6 @@ if st.session_state.is_admin:
     active_user = "admin" if "Admin" in view_mode else "guest"
 else:
     active_user = "guest"
-    st.sidebar.success("Logged in as Guest")
 
 record_owner = "admin" if st.session_state.is_admin else "guest"
 
@@ -81,42 +80,21 @@ with tab1:
             latest = response.data[0]
             st.subheader(f"Daily Status: {latest['date']} ({active_user.upper()})")
             c1, c2, c3, c4, c5 = st.columns(5)
-            cals, prot, net_c = (
-                float(latest.get("total_calories", 0)),
-                float(latest.get("total_protein", 0)),
-                float(latest.get("total_net_carbs", 0)),
-            )
-            fat, fib = (
-                float(latest.get("total_fat", 0)),
-                float(latest.get("total_fiber", 0)),
-            )
+            cals = float(latest.get("total_calories", 0))
+            prot = float(latest.get("total_protein", 0))
+            net_c = float(latest.get("total_net_carbs", 0))
+            fat = float(latest.get("total_fat", 0))
+            fib = float(latest.get("total_fiber", 0))
 
-            def get_status(curr, target, ceil=True):
-                if ceil:
-                    return "🔴" if curr > target else "🟢"
-                return "🟢" if curr >= target else "🔴"
-
-            c1.metric(
-                f"Calories {get_status(cals, TARGET_CALORIES)}",
-                f"{int(cals)}",
-                f"Goal: {TARGET_CALORIES}",
-            )
+            c1.metric("Calories", f"{int(cals)}", f"{int(TARGET_CALORIES - cals)} Left")
             c2.metric(
-                f"Protein {get_status(prot, TARGET_PROTEIN, False)}",
-                f"{int(prot)}g",
-                f"Goal: {TARGET_PROTEIN}g",
+                "Protein", f"{int(prot)}g", f"{int(prot - TARGET_PROTEIN)} vs Goal"
             )
-            c3.metric(
-                f"Net Carbs {get_status(net_c, TARGET_NET_CARBS)}",
-                f"{int(net_c)}g",
-                f"Limit: {TARGET_NET_CARBS}g",
-            )
-            c4.metric(f"Fat {get_status(fat, TARGET_FAT_MAX)}", f"{int(fat)}g")
-            c5.metric(
-                f"Fiber {get_status(fib, TARGET_FIBER_MIN, False)}", f"{int(fib)}g"
-            )
+            c3.metric("Net Carbs", f"{int(net_c)}g", f"Limit: {TARGET_NET_CARBS}")
+            c4.metric("Fat", f"{int(fat)}g")
+            c5.metric("Fiber", f"{int(fib)}g")
     except Exception as e:
-        st.error(f"Nutrition Error: {e}")
+        st.error(f"Nutrition Load Error: {e}")
 
     st.divider()
     st.subheader("🍴 Log a Meal")
@@ -139,44 +117,6 @@ with tab1:
                         }
                     ).execute()
                     st.rerun()
-    with col_b:
-        st.markdown("### Add Custom Item")
-        if st.session_state.is_admin:
-            with st.form("new_food_form"):
-                n_name = st.text_input("Name")
-                nc, np, nf, ncar, nfib = st.columns(5)
-                c_val = nc.number_input("Cals", 0)
-                p_val = np.number_input("Prot", 0)
-                f_val = nf.number_input("Fat", 0)
-                car_val = ncar.number_input("NetC", 0)
-                fib_val = nfib.number_input("Fiber", 0)
-                if st.form_submit_button("Create & Log"):
-                    res = (
-                        supabase.table("foods")
-                        .insert(
-                            {
-                                "food_name": n_name,
-                                "calories": c_val,
-                                "protein_g": p_val,
-                                "fat_g": f_val,
-                                "net_carbs_g": car_val,
-                                "fiber_g": fib_val,
-                            }
-                        )
-                        .execute()
-                    )
-                    if res.data:
-                        supabase.table("daily_logs").insert(
-                            {
-                                "food_id": res.data[0]["food_id"],
-                                "servings": 1.0,
-                                "log_date": str(datetime.now().date()),
-                                "user_id": record_owner,
-                            }
-                        ).execute()
-                        st.rerun()
-        else:
-            st.warning("Admin only: Custom food creation.")
 
 # --- TAB 2: HEALTH METRICS ---
 with tab2:
@@ -198,13 +138,13 @@ with tab2:
 
             # --- STATUS CARDS ---
             latest = df.iloc[-1]
-            st.subheader(f"📋 Latest Status (Logged: {latest['display_time']})")
+            st.subheader(f"📋 Latest Health Status (Logged: {latest['display_time']})")
             s1, s2, s3 = st.columns(3)
 
             if not pd.isna(latest.get("weight_lb")):
                 w = latest["weight_lb"]
                 w_status = "🟢" if w < 200 else "🟡" if w < 220 else "🔴"
-                s1.metric("Weight", f"{w} lbs", f"{w_status} Target < 200")
+                s1.metric("Current Weight", f"{w} lbs", f"{w_status} Target < 200")
 
             if not pd.isna(latest.get("blood_pressure_systolic")):
                 sys, dia = (
@@ -219,24 +159,27 @@ with tab2:
                     else "🔴"
                 )
                 s2.metric(
-                    "BP", f"{int(sys)}/{int(dia)}", f"{bp_status} Target < 130/85"
+                    "Blood Pressure",
+                    f"{int(sys)}/{int(dia)}",
+                    f"{bp_status} Target < 130/85",
                 )
 
             if not pd.isna(latest.get("blood_glucose")):
                 glu = latest["blood_glucose"]
                 g_status = "🟢" if glu < 100 else "🟡" if glu < 125 else "🔴"
-                s3.metric("Glucose", f"{int(glu)} mg/dL", f"{g_status} Target < 100")
+                s3.metric(
+                    "Blood Glucose", f"{int(glu)} mg/dL", f"{g_status} Target < 100"
+                )
 
             st.divider()
-            st.subheader("📊 Trends (Click/Drag to Zoom)")
-            brush = alt.selection_interval(encodings=["x"])
 
-            def create_chart(data, y_col, y_label, y_domain, color):
+            # --- TREND CHARTS (ZOOM DISABLED FOR BETTER PAGE SCROLLING) ---
+            def create_static_chart(data, y_col, y_label, y_domain, color):
                 base = alt.Chart(data).encode(
                     x=alt.X(
                         "ts:T",
-                        title="Date",
-                        axis=alt.Axis(format="%b %d", tickCount="day"),
+                        title="Timeline",
+                        axis=alt.Axis(format="%b %d", labelAngle=-45, tickCount="day"),
                     ),
                     y=alt.Y(
                         f"{y_col}:Q",
@@ -248,28 +191,27 @@ with tab2:
                         alt.Tooltip(f"{y_col}:Q", title=y_label),
                     ],
                 )
+                # Static lines/points - no scrolling hijacking
                 return (
-                    (
-                        base.mark_line(color=color, opacity=0.4)
-                        + base.mark_point(color=color, size=60, filled=True)
-                    )
-                    .add_params(brush)
-                    .transform_filter(brush)
-                    .properties(height=250)
-                )
+                    base.mark_line(color=color, opacity=0.4)
+                    + base.mark_point(color=color, size=60, filled=True)
+                ).properties(height=250)
 
-            # Charts
+            # Weight Chart
             w_df = df.dropna(subset=["weight_lb"])
             if not w_df.empty:
-                st.write("**Weight**")
+                st.write("**Weight Trend**")
                 st.altair_chart(
-                    create_chart(w_df, "weight_lb", "Lbs", [100, 300], "#3498db"),
+                    create_static_chart(
+                        w_df, "weight_lb", "Lbs", [100, 300], "#3498db"
+                    ),
                     use_container_width=True,
                 )
 
+            # Blood Pressure Chart
             bp_df = df.dropna(subset=["blood_pressure_systolic"])
             if not bp_df.empty:
-                st.write("**Blood Pressure**")
+                st.write("**Blood Pressure Trend**")
                 bp_melted = bp_df.melt(
                     id_vars=["ts", "display_time"],
                     value_vars=["blood_pressure_systolic", "blood_pressure_diastolic"],
@@ -290,52 +232,81 @@ with tab2:
                             alt.Tooltip("value:Q"),
                         ],
                     )
-                    .add_params(brush)
-                    .transform_filter(brush)
                     .properties(height=250)
-                    .interactive()
                 )
                 st.altair_chart(bp_chart, use_container_width=True)
 
+            # Glucose Chart
             g_df = df.dropna(subset=["blood_glucose"])
             if not g_df.empty:
-                st.write("**Glucose**")
+                st.write("**Glucose Trend**")
                 st.altair_chart(
-                    create_chart(g_df, "blood_glucose", "mg/dL", [50, 250], "#e74c3c"),
+                    create_static_chart(
+                        g_df, "blood_glucose", "mg/dL", [50, 250], "#e74c3c"
+                    ),
                     use_container_width=True,
                 )
 
         st.divider()
-        st.subheader("➕ Manual Entry (Backdating Supported)")
-        with st.form("metric_form_final", clear_on_submit=True):
-            f1, f2 = st.columns(2)
-            log_date, log_time = (
-                f1.date_input("Date", datetime.now()),
-                f2.time_input("Time", datetime.now()),
-            )
-            c1, c2, c3, c4 = st.columns(4)
-            wt, sys, dia, gl = (
-                c1.number_input("Weight", 0.0),
-                c2.number_input("Sys", 0),
-                c3.number_input("Dia", 0),
-                c4.number_input("Gluc", 0),
-            )
-            if st.form_submit_button("Save Health Record"):
-                payload = {
-                    "date": str(log_date),
-                    "time": log_time.strftime("%H:%M:%S"),
-                    "user_id": record_owner,
-                }
-                if wt > 0:
-                    payload["weight_lb"] = wt
-                if sys > 0:
-                    payload["blood_pressure_systolic"] = sys
-                if dia > 0:
-                    payload["blood_pressure_diastolic"] = dia
-                if gl > 0:
-                    payload["blood_glucose"] = gl
-                supabase.table("health_metrics").insert(payload).execute()
-                st.rerun()
+        st.subheader("➕ Log Health Records")
+        now = datetime.now()
+
+        # --- RESTORED SEPARATE INPUTS ---
+        c_wt, c_bp, c_gl = st.columns(3)
+
+        with c_wt:
+            with st.expander("⚖️ Weight Entry", expanded=True):
+                w_val = st.number_input("Weight (lbs)", 0.0, 500.0, 0.0, key="wt_in")
+                w_d = st.date_input("Date", now, key="wt_date")
+                w_t = st.time_input("Time", now, key="wt_time")
+                if st.button("Save Weight"):
+                    if w_val > 0:
+                        supabase.table("health_metrics").insert(
+                            {
+                                "date": str(w_d),
+                                "time": w_t.strftime("%H:%M:%S"),
+                                "weight_lb": w_val,
+                                "user_id": record_owner,
+                            }
+                        ).execute()
+                        st.rerun()
+
+        with c_bp:
+            with st.expander("❤️ BP Entry", expanded=True):
+                sys = st.number_input("Systolic", 0, 250, 0, key="bp_sys")
+                dia = st.number_input("Diastolic", 0, 250, 0, key="bp_dia")
+                bp_d = st.date_input("Date", now, key="bp_date")
+                bp_t = st.time_input("Time", now, key="bp_time")
+                if st.button("Save BP"):
+                    if sys > 0 and dia > 0:
+                        supabase.table("health_metrics").insert(
+                            {
+                                "date": str(bp_d),
+                                "time": bp_t.strftime("%H:%M:%S"),
+                                "blood_pressure_systolic": sys,
+                                "blood_pressure_diastolic": dia,
+                                "user_id": record_owner,
+                            }
+                        ).execute()
+                        st.rerun()
+
+        with c_gl:
+            with st.expander("🩸 Glucose Entry", expanded=True):
+                gl_val = st.number_input("Glucose", 0, 500, 0, key="glu_in")
+                gl_d = st.date_input("Date", now, key="glu_date")
+                gl_t = st.time_input("Time", now, key="glu_time")
+                if st.button("Save Glucose"):
+                    if gl_val > 0:
+                        supabase.table("health_metrics").insert(
+                            {
+                                "date": str(gl_d),
+                                "time": gl_t.strftime("%H:%M:%S"),
+                                "blood_glucose": gl_val,
+                                "user_id": record_owner,
+                            }
+                        ).execute()
+                        st.rerun()
+
     except Exception as e:
         st.error(f"Health Tab Error: {e}")
 
@@ -376,19 +347,8 @@ with tab3:
                 }
             ).execute()
             st.rerun()
-    st.divider()
-    a_res = (
-        supabase.table("activity_logs")
-        .select("*")
-        .eq("user_id", active_user)
-        .order("log_date", desc=True)
-        .limit(15)
-        .execute()
-    )
-    if a_res.data:
-        st.dataframe(pd.DataFrame(a_res.data), use_container_width=True)
 
-# --- TAB 4: REPORTS & FIXED MASTER VIEWER ---
+# --- TAB 4: REPORTS ---
 with tab4:
     st.subheader("📊 Master Table Viewer")
     view_tbl = st.selectbox(
@@ -400,7 +360,6 @@ with tab4:
         if view_tbl != "foods":
             query = query.eq("user_id", active_user)
 
-        # Correct Sorting Keys
         if view_tbl in ["health_metrics", "daily_variance"]:
             sort_col = "date"
         elif view_tbl in ["activity_logs", "daily_logs"]:
@@ -414,7 +373,6 @@ with tab4:
     except Exception as e:
         st.error(f"Viewer Error: {e}")
 
-    st.divider()
     if st.button("Prepare CSV Export"):
         try:
             met = (
@@ -425,9 +383,10 @@ with tab4:
                 .data
             )
             if met:
-                csv = pd.DataFrame(met).to_csv(index=False).encode("utf-8")
                 st.download_button(
-                    "📥 Download", data=csv, file_name=f"export_{active_user}.csv"
+                    "📥 Download",
+                    data=pd.DataFrame(met).to_csv(index=False).encode("utf-8"),
+                    file_name="export.csv",
                 )
         except Exception as e:
             st.error(f"Export Error: {e}")
