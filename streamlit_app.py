@@ -64,10 +64,10 @@ tab1, tab2, tab3, tab4 = st.tabs(
     ["🍴 Nutrition", "🩺 Health Metrics", "🏃 Activity", "📊 Reports"]
 )
 
-# --- TAB 1: NUTRITION (FULLY RESTORED + EDIT & UNIQUE KEYS) ---
+# --- TAB 1: NUTRITION (FULL RESTORATION + UNIQUE KEYS) ---
 with tab1:
     try:
-        # 1. Daily Status Metrics
+        # 1. Daily Status Metrics (Your Original Logic)
         response = (
             supabase.table("daily_variance")
             .select("*")
@@ -114,7 +114,7 @@ with tab1:
 
     st.divider()
 
-    # Session State for Editing Nutrition Log
+    # Session State for Editing
     edit_log_id = st.session_state.get("editing_log_id", None)
     edit_log_vals = st.session_state.get("editing_log_vals", {})
 
@@ -129,7 +129,6 @@ with tab1:
         if f_query.data:
             f_dict = {f["food_name"]: f for f in f_query.data}
 
-            # If editing, find the current food name
             cur_food = (
                 edit_log_vals.get("foods", {}).get("food_name") if edit_log_id else None
             )
@@ -142,14 +141,12 @@ with tab1:
             )
 
             if sel:
-                # If editing, use existing servings as default
                 def_srv = (
                     float(edit_log_vals.get("servings", 1.0)) if edit_log_id else 1.0
                 )
                 srv = st.number_input("Servings", 0.1, 10.0, def_srv, step=0.1)
 
-                btn_label = "Update Log Entry" if edit_log_id else "Log Food Entry"
-                if st.button(btn_label):
+                if st.button("Update Entry" if edit_log_id else "Log Food Entry"):
                     f_id = f_dict[sel].get("food_id") or f_dict[sel].get("id")
                     payload = {
                         "food_id": f_id,
@@ -175,7 +172,7 @@ with tab1:
                         st.session_state.editing_log_vals = {}
                         st.rerun()
 
-    # 3. Admin: Create Food (Preserved)
+    # 3. Admin: Create Food (Your Original Logic)
     with col_b:
         if st.session_state.is_admin:
             st.markdown("### ➕ Admin: Create Food")
@@ -226,16 +223,15 @@ with tab1:
             lc1.write(f"**{f_info.get('food_name', 'Unknown')}**")
             lc2.write(f"{int(f_info.get('calories', 0) * r.get('servings', 1))} kcal")
 
-            l_id = r.get("log_id") or r.get("id") or idx
+            l_id = r.get("log_id") or r.get("id") or f"nutri_{idx}"
 
-            # Edit Button (idx added to key to prevent Streamlit error)
-            if lc3.button("✏️", key=f"ed_log_{l_id}_{idx}"):
+            # The _{idx} suffix is the "ghost repellent"
+            if lc3.button("✏️", key=f"ed_nut_{l_id}_{idx}"):
                 st.session_state.editing_log_id = l_id
                 st.session_state.editing_log_vals = r
                 st.rerun()
 
-            # Delete Button (idx added to key to prevent Streamlit error)
-            if lc4.button("🗑️", key=f"del_log_{l_id}_{idx}"):
+            if lc4.button("🗑️", key=f"del_nut_{l_id}_{idx}"):
                 col_n = "log_id" if "log_id" in r else "id"
                 supabase.table("daily_logs").delete().eq(col_n, l_id).execute()
                 st.rerun()
