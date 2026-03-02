@@ -459,18 +459,21 @@ with tab3:
                 supabase.table("activity_logs").delete().eq(col_n, a_id).execute()
                 st.rerun()
 
-# --- TAB 4: REPORTS (STABLE REVERT) ---
+# --- TAB 4: REPORTS & EXPORTS (RESTORED MASTER EXPORT) ---
 with tab4:
-    st.subheader("📊 Data Explorer & Master Export")
+    st.subheader("📥 Data Management & Master Export")
+
+    # 1. Individual Table Viewer (Existing Feature)
     report_tbl = st.selectbox(
-        "Select Data Source", ["health_metrics", "daily_logs", "activity_logs", "foods"]
+        "View Individual Table",
+        ["health_metrics", "daily_logs", "activity_logs", "foods"],
     )
 
     q = supabase.table(report_tbl).select("*")
     if report_tbl != "foods":
         q = q.eq("user_id", active_user)
 
-    # Reverted to table-specific sorting that worked
+    # Table-specific sorting for the viewer
     if report_tbl == "health_metrics":
         rep_res = q.order("date", desc=True).execute()
     elif "logs" in report_tbl:
@@ -479,12 +482,72 @@ with tab4:
         rep_res = q.execute()
 
     if rep_res.data:
-        df_rep = pd.DataFrame(rep_res.data)
-        st.dataframe(df_rep, use_container_width=True)
-        csv = df_rep.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            label=f"💾 Download {report_tbl.replace('_', ' ').title()} as CSV",
-            data=csv,
-            file_name=f"{active_user}_{report_tbl}.csv",
-            mime="text/csv",
-        )
+        df_view = pd.DataFrame(rep_res.data)
+        st.dataframe(df_view, use_container_width=True)
+
+    st.divider()
+
+    # 2. THE MASTER EXPORT (All tables in one CSV)
+    st.subheader("🚀 Master CSV Export")
+    st.write(
+        "Click below to generate a single file containing all your health, nutrition, and activity data."
+    )
+
+    if st.button("Generate Master Dataset"):
+        try:
+            # Fetch all relevant tables
+            h_data = (
+                supabase.table("health_metrics")
+                .select("*")
+                .eq("user_id", active_user)
+                .execute()
+            )
+            n_data = (
+                supabase.table("daily_logs")
+                .select("*, foods(food_name, calories, protein_g, net_carbs_g)")
+                .eq("user_id", active_user)
+                .execute()
+            )
+            a_data = (
+                supabase.table("activity_logs")
+                .select("*")
+                .eq("user_id", active_user)
+                .execute()
+            )
+
+            # Convert to DataFrames and add Source tags
+            df_h = pd.DataFrame(h_data.data)
+            if not df_h.empty:
+                df_h["source_table"] = "health_metrics"
+
+            # For nutrition, flatten the food details so they are in the CSV rows
+            df_n = pd.json_normalize(n_data.data)
+            if not df_n.empty:
+                df_n["source_table"] = "nutrition_logs"
+
+            df_a = pd.DataFrame(a_data.data)
+            if not df_a.empty:
+                df_a["source_table"] = "activity_logs"
+
+            # Merge all into one Master DataFrame
+            master_df = pd.concat([df_h, df_n, df_a], axis=0, ignore_index=True)
+
+            # Reorder columns to put Date and Source first for better external charting
+            cols = master_df.columns.tolist()
+            if "date" in cols and "log_date" in cols:
+                # Fill missing dates from log_date if date is empty (common in merged datasets)
+                master_df["unified_date"] = master_df["date"].fillna(
+                    master_df["log_date"]
+                )
+
+            csv_master = master_df.to_csv(index=False).encode("utf-8")
+
+            st.success("Master Dataset Prepared!")
+            st.download_button(
+                label="💾 Download All Data (Master CSV)",
+                data=csv_master,
+                file_name=f"MASTER_EXPORT_{active_user}_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+            )
+        except Exception as e:
+            st.error(f"Export Error: {e}")
