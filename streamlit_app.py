@@ -35,7 +35,7 @@ with tab1:
         response = supabase.table("daily_variance").select("*").execute()
         if response.data:
             latest = response.data[0]
-            st.subheader(f"Status for {latest['date']}")
+            st.subheader(f"Status for {latest.get('date')}")
             c1, c2, c3, c4, c5 = st.columns(5)
 
             cals = float(latest.get("total_calories", 0))
@@ -343,7 +343,7 @@ with tab2:
     except Exception as e:
         st.error(f"Health Dashboard error: {e}")
 
-# --- TAB 3: ACTIVITY (Surgically Fixed) ---
+# --- TAB 3: ACTIVITY ---
 with tab3:
     st.subheader("🏃 Log Activity")
     act_cat = st.radio("Category", ["Strength", "Cardio", "Endurance"], horizontal=True)
@@ -353,7 +353,6 @@ with tab3:
         name = st.text_input("Exercise Name")
         c1, c2, c3 = st.columns(3)
 
-        # Initialize variables to send to DB
         dur, dist, s, r, w = 0.0, 0.0, 0, 0, 0
 
         if act_cat == "Strength":
@@ -368,7 +367,6 @@ with tab3:
 
         if st.form_submit_button("Log Activity"):
             if name:
-                # Mapping strictly to your activity_category and exercise_name schema
                 supabase.table("activity_logs").insert(
                     {
                         "date": str(a_date),
@@ -389,6 +387,7 @@ with tab3:
     st.divider()
     st.subheader("📜 Activity History")
     try:
+        # Changed select to specifically pull date to ensure sorting works
         a_res = (
             supabase.table("activity_logs")
             .select("*")
@@ -398,7 +397,7 @@ with tab3:
         if a_res.data:
             st.dataframe(pd.DataFrame(a_res.data), use_container_width=True)
     except Exception as e:
-        st.error(f"Activity load error: {e}")
+        st.error(f"Activity History Error: {e}")
 
 # --- TAB 4: REPORTS & EXPORTS ---
 with tab4:
@@ -416,9 +415,9 @@ with tab4:
     tbl = t_map[report_type]
 
     try:
-        s_col = "log_date" if tbl == "daily_variance" else "date"
+        # FIXED: Every table here uses 'date' based on your unredacted error
         res = (
-            supabase.table(tbl).select("*").order(s_col, desc=True).limit(50).execute()
+            supabase.table(tbl).select("*").order("date", desc=True).limit(50).execute()
         )
         if res.data:
             st.dataframe(pd.DataFrame(res.data), use_container_width=True)
